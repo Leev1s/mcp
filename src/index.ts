@@ -27,7 +27,7 @@ MCP WORKER // ONLINE
 --------------------
 service  : UUID + Unix Time Tools
 mcp      : ${origin}/mcp
-health   : ${origin}/generate_204
+health   : ${origin}/204
 
 tools
   - generate_uuid_from_seed
@@ -94,7 +94,7 @@ export default {
 			});
 		}
 
-		if (isReadRequest && url.pathname === "/generate_204") {
+		if (isReadRequest && url.pathname === "/204") {
 			return new Response(null, {
 				status: 204,
 				headers: { "Cache-Control": "no-store" },
