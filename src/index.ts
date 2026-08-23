@@ -3,6 +3,41 @@ import { createMcpHandler } from "agents/mcp/server";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 
+const STATUS_HEADERS = {
+	"Cache-Control": "no-store, no-cache, must-revalidate",
+	"Content-Type": "text/plain; charset=utf-8",
+	"X-Content-Type-Options": "nosniff",
+	"X-Robots-Tag": "noindex, nofollow",
+};
+
+function createLandingPage(request: Request) {
+	const origin = new URL(request.url).origin;
+	const checkedAt = new Date().toISOString();
+	const ray = request.headers.get("cf-ray") ?? "local";
+
+	return `${String.raw`
+ __  __   ____   ____
+|  \/  | / ___| |  _ \
+| |\/| || |     | |_) |
+| |  | || |___  |  __/
+|_|  |_| \____| |_|
+`.trim()}
+
+MCP WORKER // ONLINE
+--------------------
+service  : UUID + Unix Time Tools
+mcp      : ${origin}/mcp
+health   : ${origin}/generate_204
+
+tools
+  - generate_uuid_from_seed
+  - get_unix_timestamp
+
+checked  : ${checkedAt}
+cf-ray   : ${ray}
+`;
+}
+
 function createServer() {
 	const server = new McpServer({
 		name: "UUID and Time Tools",
@@ -50,6 +85,22 @@ const handler = createMcpHandler(createServer);
 
 export default {
 	fetch(request: Request, env: Env, ctx: ExecutionContext) {
+		const url = new URL(request.url);
+		const isReadRequest = request.method === "GET" || request.method === "HEAD";
+
+		if (isReadRequest && url.pathname === "/") {
+			return new Response(request.method === "HEAD" ? null : createLandingPage(request), {
+				headers: STATUS_HEADERS,
+			});
+		}
+
+		if (isReadRequest && url.pathname === "/generate_204") {
+			return new Response(null, {
+				status: 204,
+				headers: { "Cache-Control": "no-store" },
+			});
+		}
+
 		return handler(request, env, ctx);
 	},
 } satisfies ExportedHandler<Env>;
