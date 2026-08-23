@@ -10,6 +10,13 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "mcp",
 	"main": "src/index.ts",
+	"workers_dev": true,
+	"routes": [
+		{
+			"pattern": "r3.net.eu.org",
+			"custom_domain": true
+		}
+	],
 	"compatibility_date": "2026-07-02",
 	"compatibility_flags": [
 		"nodejs_compat"
