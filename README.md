@@ -45,7 +45,9 @@ https://r3.net.eu.org/mcp/<MCP_URL_TOKEN>
 
 备用域名也支持相同秘密路径。旧 `/mcp` 和旧 Bearer Key 不再有效。本版不是 OAuth，也不提供浏览器跨域 CORS。
 
-本地真实配置统一放在项目 `.env`，权限 600、不提交 Git；完整链接备份在 `.private/private-url`。它们不能通过 GitHub 恢复，请另存到密码管理器。只粘贴到可信客户端设置，不要在浏览器地址栏、聊天或截图中传播。拿到链接的人可以读取邮件和保存草稿，不能发送。MCP_API_KEY 已废弃并从线上删除，只有 MCP_URL_TOKEN 在使用。
+本地开发时可以把真实配置放在项目 `.env`（权限 600），它只服务于 `npm run dev`，不会提交 Git。完整链接的本机备份在 `.private/private-url`；它们都不会进入 GitHub，也不能通过新设备 clone 恢复，请另存到密码管理器。只粘贴到可信客户端设置，不要在浏览器地址栏、聊天或截图中传播。拿到链接的人可以读取邮件和保存草稿，不能发送。MCP_API_KEY 已废弃并从线上删除，只有 MCP_URL_TOKEN 在使用。
+
+生产部署和新设备的 clone / check / push 都不需要本地 `.env`：生产邮箱配置和秘密 URL 由 Cloudflare Worker 的 Runtime Secrets 提供。若新设备要运行本地邮件功能，才需要另行创建 `.env`；`.env.example` 只有占位符。
 
 ## CI/CD
 
@@ -71,6 +73,12 @@ GitHub Actions 在 push / PR 时运行不带 Secrets 的测试、类型检查和
 连接后推送一次，并在 Cloudflare Builds 中确认成功记录，才算持续部署已启用。只添加配置文件不会自动连接 Cloudflare Git 集成。
 
 非敏感设置 IMAP_SERVER / IMAP_PORT 由 wrangler.jsonc 管理；运行时 Secrets 独立保存，普通代码部署不会从 .env 上传或轮换它们。修改线上密码需要单独更新 Secret。回滚代码也不能恢复已删除的旧 Secret 名称。
+
+### 新设备
+
+新设备只需 clone、安装 Node 26 和依赖，然后修改代码、commit、push；不需要复制 `.env`，也不需要知道任何 Cloudflare API Token、邮箱授权码或 MCP 私密 URL。Cloudflare Builds 会使用 Cloudflare 侧的构建授权，Worker 继续使用 Cloudflare 侧已有的 Runtime Secrets。
+
+只有在新设备上运行 `npm run dev` 并实际连接 QQ 邮箱时，才需要通过密码管理器重新建立本地 `.env`。完整的 ChatGPT MCP URL 也不会从 Git clone 恢复。
 
 Worker observability 已关闭以减少完整请求 URL 留存，但不能保证 Cloudflare、客户端或其他基础设施不记录 URL。这个方案是持有链接即获授权，不验证个人身份，也没有自动过期、按客户端撤销或 OAuth 权限管理。泄漏时生成新 MCP_URL_TOKEN、更新 Cloudflare Secret，并替换所有客户端链接；旧链接随之失效。请通过密码管理器保管。
 
