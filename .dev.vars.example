@@ -1,0 +1,7 @@
+# Local configuration only. Never commit real credentials.
+MCP_API_KEY="replace-with-a-random-key-of-at-least-32-characters"
+IMAP_USER="your-account@qq.com"
+IMAP_PASSWORD="your-qq-imap-authorization-code"
+# IMAP_HOST and IMAP_PORT are set in wrangler.jsonc.
+# MAIL_FROM="your-account@qq.com"
+# IMAP_DRAFTS_MAILBOX="Drafts"

@@ -2,6 +2,8 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
+import { authorizeMcp } from "./auth";
+import { registerMailTools, type MailEnv } from "./mail";
 
 const BASE_STATUS_HEADERS = {
 	"Cache-Control": "no-store, no-cache, must-revalidate",
@@ -57,13 +59,17 @@ function createTextStatus(request: Request) {
 
 MCP WORKER // ONLINE
 --------------------
-service  : UUID + Unix Time Tools
+service  : UUID + Unix Time + Mail Tools
+auth     : Bearer key required on /mcp
 mcp      : ${origin}/mcp
 health   : ${origin}/204
 
 tools
   - generate_uuid_from_seed
   - get_unix_timestamp
+  - find_email
+  - read_email
+  - draft_email
 
 checked  : ${checkedAt}
 cf-ray   : ${ray}
@@ -415,7 +421,7 @@ function createHtmlStatus(request: Request) {
 | |  | || |___  |  __/
 |_|  |_| \____| |_|</pre>
         <h1>Small tools.<br><span>Global edge.</span></h1>
-        <p class="lede">A stateless MCP worker carrying deterministic UUID generation and Unix time across Cloudflare's edge. No origin. No session. Just tools.</p>
+        <p class="lede">UUIDs, Unix time, and a private mailbox connector on Cloudflare's edge. Search, read, and draft through one authenticated MCP endpoint. Never send.</p>
       </div>
 
       <div class="orbital" aria-hidden="true">
@@ -434,31 +440,34 @@ function createHtmlStatus(request: Request) {
 
     <section class="grid">
       <article class="panel">
-        <h2 class="panel-title">Routes // Public surface</h2>
+        <h2 class="panel-title">Routes // MCP requires Bearer key</h2>
         <div class="route"><span class="verb">POST</span><code>${origin}/mcp</code></div>
         <div class="route"><span class="verb">GET</span><code>${origin}/204</code></div>
       </article>
 
       <article class="panel">
-        <h2 class="panel-title">Tool registry // 02 active</h2>
+        <h2 class="panel-title">Tool registry // 05 registered</h2>
         <div class="tool"><span class="index">01</span><code class="tool-name">generate_uuid_from_seed</code><span class="tag">UUID v5</span></div>
         <div class="tool"><span class="index">02</span><code class="tool-name">get_unix_timestamp</code><span class="tag">Epoch sec</span></div>
+        <div class="tool"><span class="index">03</span><code class="tool-name">find_email</code><span class="tag">Search</span></div>
+        <div class="tool"><span class="index">04</span><code class="tool-name">read_email</code><span class="tag">Read only</span></div>
+        <div class="tool"><span class="index">05</span><code class="tool-name">draft_email</code><span class="tag">Never send</span></div>
       </article>
     </section>
 
     <footer>
       <span>r3.net.eu.org</span>
-      <span>No auth // No state // No origin</span>
+      <span>Bearer auth // Single mailbox // Mailbox health not probed</span>
     </footer>
   </main>
 </body>
 </html>`;
 }
 
-function createServer() {
+function createServer(env: MailEnv) {
 	const server = new McpServer({
-		name: "UUID and Time Tools",
-		version: "1.0.0",
+		name: "MCP",
+		version: "1.1.0",
 	});
 
 	server.registerTool(
@@ -495,13 +504,12 @@ function createServer() {
 		},
 	);
 
+	registerMailTools(server, env);
 	return server;
 }
 
-const handler = createMcpHandler(createServer);
-
 export default {
-	fetch(request: Request, env: Env, ctx: ExecutionContext) {
+	async fetch(request: Request, env: Env & MailEnv, ctx: ExecutionContext) {
 		const url = new URL(request.url);
 		const isReadRequest = request.method === "GET" || request.method === "HEAD";
 
@@ -526,6 +534,10 @@ export default {
 			});
 		}
 
-		return handler(request, env, ctx);
+		if (url.pathname !== "/mcp" && url.pathname !== "/mcp/")
+			return new Response("Not Found", { status: 404 });
+		const denied = await authorizeMcp(request, env.MCP_API_KEY);
+		if (denied) return denied;
+		return createMcpHandler(() => createServer(env))(request, env, ctx);
 	},
 } satisfies ExportedHandler<Env>;

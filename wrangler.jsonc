@@ -10,21 +10,20 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "mcp",
 	"main": "src/index.ts",
+	"vars": { "IMAP_HOST": "imap.qq.com", "IMAP_PORT": "993" },
 	"workers_dev": true,
 	"routes": [
 		{
 			"pattern": "r3.net.eu.org",
-			"custom_domain": true
-		}
+			"custom_domain": true,
+		},
 	],
 	"compatibility_date": "2026-07-02",
-	"compatibility_flags": [
-		"nodejs_compat"
-	],
+	"compatibility_flags": ["nodejs_compat"],
 	"observability": {
-		"enabled": true
+		"enabled": true,
 	},
-	"upload_source_maps": true
+	"upload_source_maps": true,
 	/**
 	 * Smart Placement
 	 * https://developers.cloudflare.com/workers/configuration/smart-placement/#smart-placement
