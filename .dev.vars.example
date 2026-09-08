@@ -1,8 +1,0 @@
-# Local configuration only. Never commit real credentials.
-# Generate 32 random bytes as 64 lowercase hex characters.
-MCP_URL_TOKEN="replace-with-64-random-hex-characters"
-IMAP_USER="your-account@qq.com"
-IMAP_PASSWORD="your-qq-imap-authorization-code"
-# IMAP_HOST and IMAP_PORT are set in wrangler.jsonc.
-# MAIL_FROM="your-account@qq.com"
-# IMAP_DRAFTS_MAILBOX="Drafts"

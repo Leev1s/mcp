@@ -37,7 +37,11 @@ class FakeImap {
 }
 mock.module("imapflow", { namedExports: { ImapFlow: FakeImap } });
 const { composeDraft, registerMailTools } = await import("../src/mail.ts");
-const env = { IMAP_HOST: "imap.example.com", IMAP_USER: "me@example.com", IMAP_PASSWORD: "secret" };
+const env = {
+	IMAP_SERVER: "imap.example.com",
+	IMAP_ACCOUNT: "me@example.com",
+	IMAP_SECRET: "secret",
+};
 function registry(config = env) {
 	const tools = {};
 	registerMailTools(

@@ -3,6 +3,7 @@
 	"version": "0.0.0",
 	"private": true,
 	"scripts": {
+		"check": "npm test && npm run type-check && oxlint",
 		"test": "node --experimental-test-module-mocks --test tests/*.test.mjs",
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",

@@ -6,10 +6,10 @@ import type { McpServer } from "@modelcontextprotocol/server";
 
 export interface MailEnv {
 	MCP_URL_TOKEN?: string;
-	IMAP_HOST?: string;
+	IMAP_SERVER?: string;
 	IMAP_PORT?: string;
-	IMAP_USER?: string;
-	IMAP_PASSWORD?: string;
+	IMAP_ACCOUNT?: string;
+	IMAP_SECRET?: string;
 	MAIL_FROM?: string;
 	IMAP_DRAFTS_MAILBOX?: string;
 }
@@ -31,19 +31,19 @@ class MailError extends Error {}
 
 // Each tool owns a short-lived connection; sockets are never shared across requests.
 async function withMailbox<T>(env: MailEnv, operation: (client: ImapFlow) => Promise<T>) {
-	if (!env.IMAP_HOST || !env.IMAP_USER || !env.IMAP_PASSWORD) {
+	if (!env.IMAP_SERVER || !env.IMAP_ACCOUNT || !env.IMAP_SECRET) {
 		throw new MailError(
-			"Mailbox is not configured. Set IMAP_HOST, IMAP_USER and IMAP_PASSWORD.",
+			"Mailbox is not configured. Set IMAP_SERVER, IMAP_ACCOUNT and IMAP_SECRET.",
 		);
 	}
 	const port = Number(env.IMAP_PORT ?? "993");
 	if (!Number.isInteger(port) || port < 1 || port > 65535)
 		throw new MailError("Invalid IMAP_PORT.");
 	const client = new ImapFlow({
-		host: env.IMAP_HOST,
+		host: env.IMAP_SERVER,
 		port,
 		secure: true,
-		auth: { user: env.IMAP_USER, pass: env.IMAP_PASSWORD },
+		auth: { user: env.IMAP_ACCOUNT, pass: env.IMAP_SECRET },
 		logger: false,
 		disableAutoIdle: true,
 		disableCompression: true,
@@ -307,7 +307,7 @@ export function registerMailTools(server: McpServer, env: MailEnv) {
 						throw new MailError(
 							"No Drafts folder identified. Set IMAP_DRAFTS_MAILBOX to the existing folder name.",
 						);
-					const from = env.MAIL_FROM || env.IMAP_USER || "";
+					const from = env.MAIL_FROM || env.IMAP_ACCOUNT || "";
 					if (!addressSchema.safeParse(from).success)
 						throw new MailError("Set MAIL_FROM to a valid email address.");
 					const messageId = `${crypto.randomUUID()}@${from.split("@")[1]}`;

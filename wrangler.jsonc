@@ -10,7 +10,7 @@
 	"$schema": "node_modules/wrangler/config-schema.json",
 	"name": "mcp",
 	"main": "src/index.ts",
-	"vars": { "IMAP_HOST": "imap.qq.com", "IMAP_PORT": "993" },
+	"vars": { "IMAP_SERVER": "imap.qq.com", "IMAP_PORT": "993" },
 	"workers_dev": true,
 	"routes": [
 		{
