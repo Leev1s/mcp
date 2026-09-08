@@ -79,7 +79,7 @@ Worker observability 已关闭以减少完整请求 URL 留存，但不能保证
 | generate_uuid_from_seed | seed 字符串生成确定性的 UUID v5                                                                   |
 | get_unix_timestamp      | 当前 Unix 秒数                                                                                    |
 | find_email              | query / from / subject / unread 搜索；mailbox 默认 INBOX；limit 默认 10、最多 25；before_uid 翻页 |
-| read_email              | 使用搜索返回的 mailbox、uid、uid_validity 读取邮件                                                |
+| read_email              | 使用搜索返回的 mailbox、uid、uid_validity 读取邮件；HTML 默认清洗为文本并保留可操作链接           |
 | draft_email             | to 地址数组、subject、text；保存一个新的纯文本草稿，绝不发送                                      |
 
 查找和读取不标记已读。单封原始邮件最多 2 MiB，返回正文最多 10 万字符；附件只返回元数据。

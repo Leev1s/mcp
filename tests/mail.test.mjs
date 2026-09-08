@@ -4,6 +4,7 @@ import PostalMime from "postal-mime";
 import { authorizeMcp } from "../src/auth.ts";
 
 let instance;
+let mailSource = Buffer.from("Subject: hello\r\n\r\nbody");
 class FakeImap {
 	constructor(options) {
 		this.options = options;
@@ -18,14 +19,15 @@ class FakeImap {
 		assert.equal(options.readOnly, true);
 		return { uidValidity: 7n };
 	}
-	async search() {
+	async search(query) {
+		this.searchQuery = query;
 		return [1, 2, 3];
 	}
 	async fetchAll(uids) {
 		return uids.map((uid) => ({ uid, flags: new Set(), size: 100 }));
 	}
 	async fetchOne(uid, query) {
-		return query.size ? { size: 100 } : { source: Buffer.from("Subject: hello\r\n\r\nbody") };
+		return query.size ? { size: mailSource.length } : { source: mailSource };
 	}
 	async list() {
 		return [{ path: "Drafts", specialUse: "\\Drafts" }];
@@ -126,13 +128,39 @@ test("search paginates newest first and closes TLS connection", async () => {
 	assert.equal(result.next_before_uid, 2);
 	assert.equal(instance.options.secure, true);
 	assert.equal(instance.options.logger, false);
+	assert.deepEqual(instance.searchQuery, { all: true });
 	assert.equal(instance.closed, true);
+});
+test("query maps to reliable subject, body and address searches", async () => {
+	await registry().find_email({ query: "SenseTime" });
+	assert.deepEqual(instance.searchQuery, {
+		or: [
+			{ subject: "SenseTime" },
+			{ body: "SenseTime" },
+			{ from: "SenseTime" },
+			{ to: "SenseTime" },
+		],
+	});
 });
 test("read verifies UIDVALIDITY, parses source, closes connection", async () => {
 	assert.equal((await registry().read_email({ uid: 1, uid_validity: "8" })).isError, true);
 	const result = value(await registry().read_email({ uid: 1, uid_validity: "7" }));
 	assert.equal(result.subject, "hello");
 	assert.equal(instance.closed, true);
+});
+test("HTML mail becomes readable text and keeps useful links", async () => {
+	const html = `<html><head><style>.x{background:url(data:image/png;base64,AAAA)}</style><script>bad()</script></head><body><p>你好：</p><p>请在72小时内参加 AI 面试。</p><a href="https://example.com/exam?id=1&amp;from=mail">马上开始测评</a><img width="1" height="1" src="data:image/png;base64,AAAA"></body></html>`;
+	mailSource = Buffer.from(`Content-Type: text/html; charset=utf-8\r\n\r\n${html}`);
+	try {
+		const result = value(await registry().read_email({ uid: 1, uid_validity: "7" }));
+		assert.equal(result.body_format, "text");
+		assert.match(result.body, /你好/);
+		assert.match(result.body, /马上开始测评/);
+		assert.match(result.body, /https:\/\/example\.com\/exam\?id=1&from=mail/);
+		assert.doesNotMatch(result.body, /base64|bad\(\)|<html|<style/);
+	} finally {
+		mailSource = Buffer.from("Subject: hello\r\n\r\nbody");
+	}
 });
 test("draft appends Draft flag, never sends, and rejects header injection", async () => {
 	const tools = registry();

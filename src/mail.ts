@@ -29,6 +29,61 @@ const MAX_MESSAGE_BYTES = 2 * 1024 * 1024;
 
 class MailError extends Error {}
 
+function decodeHtmlEntities(value: string) {
+	const namedEntities: Record<string, string> = {
+		amp: "&",
+		apos: "'",
+		gt: ">",
+		lt: "<",
+		nbsp: " ",
+		quot: '"',
+	};
+	return value.replace(/&(#x[\da-f]+|#\d+|[a-z]+);/gi, (entity, code: string) => {
+		if (code.toLowerCase().startsWith("#x")) {
+			const point = Number.parseInt(code.slice(2), 16);
+			return Number.isFinite(point) ? String.fromCodePoint(point) : entity;
+		}
+		if (code.startsWith("#")) {
+			const point = Number.parseInt(code.slice(1), 10);
+			return Number.isFinite(point) ? String.fromCodePoint(point) : entity;
+		}
+		return namedEntities[code.toLowerCase()] ?? entity;
+	});
+}
+
+/** Turn an HTML-only message into compact text while retaining useful links. */
+export function htmlToReadableText(html: string) {
+	let text = html
+		.replace(/<!--[\s\S]*?-->/g, " ")
+		.replace(
+			/<(script|style|head|noscript|template|svg|canvas|iframe|object|picture)\b[^>]*>[\s\S]*?<\/\1>/gi,
+			" ",
+		)
+		.replace(/<img\b[^>]*>/gi, " ")
+		.replace(/data:image\/[^;]+;base64,[^\s"'<>)]*/gi, " ")
+		.replace(
+			/<a\b[^>]*\bhref\s*=\s*(?:"([^"]*)"|'([^']*)'|([^\s>]+))[^>]*>([\s\S]*?)<\/a>/gi,
+			(_match, doubleQuoted, singleQuoted, unquoted, content: string) => {
+				const href = decodeHtmlEntities(doubleQuoted ?? singleQuoted ?? unquoted ?? "");
+				const link = /^(?:https?:\/\/|mailto:)/i.test(href) ? `\n${href}` : "";
+				return `${content}${link}`;
+			},
+		)
+		.replace(/<br\b[^>]*>/gi, "\n")
+		.replace(
+			/<\/?(?:p|div|section|article|header|footer|li|tr|td|th|h[1-6]|table|ul|ol|blockquote|pre|hr)\b[^>]*>/gi,
+			"\n",
+		)
+		.replace(/<[^>]*>/g, " ");
+
+	return decodeHtmlEntities(text)
+		.replace(/\u00a0/g, " ")
+		.replace(/[ \t]+/g, " ")
+		.replace(/[ \t]*\n[ \t]*/g, "\n")
+		.replace(/\n{3,}/g, "\n\n")
+		.trim();
+}
+
 // Each tool owns a short-lived connection; sockets are never shared across requests.
 async function withMailbox<T>(env: MailEnv, operation: (client: ImapFlow) => Promise<T>) {
 	if (!env.IMAP_SERVER || !env.IMAP_ACCOUNT || !env.IMAP_SECRET) {
@@ -174,8 +229,16 @@ export function registerMailTools(server: McpServer, env: MailEnv) {
 			runMail(() =>
 				withMailbox(env, async (client) => {
 					const box = await client.mailboxOpen(mailbox, { readOnly: true });
-					const search: SearchObject = { all: true };
-					if (query) search.text = query;
+					const search: SearchObject = query
+						? {
+								or: [
+									{ subject: query },
+									{ body: query },
+									{ from: query },
+									{ to: query },
+								],
+							}
+						: { all: true };
 					if (from) search.from = from;
 					if (subject) search.subject = subject;
 					if (unread !== undefined) search.seen = !unread;
@@ -252,7 +315,12 @@ export function registerMailTools(server: McpServer, env: MailEnv) {
 					if (message.source.length > MAX_MESSAGE_BYTES)
 						throw new MailError("Email exceeds the 2 MiB read limit.");
 					const parsed = await PostalMime.parse(message.source);
-					const body = parsed.text ?? parsed.html ?? "";
+					const body =
+						parsed.text !== undefined
+							? parsed.text
+							: parsed.html
+								? htmlToReadableText(parsed.html)
+								: "";
 					return {
 						mailbox,
 						uid,
@@ -264,7 +332,7 @@ export function registerMailTools(server: McpServer, env: MailEnv) {
 						date: parsed.date,
 						message_id: parsed.messageId,
 						body: body.slice(0, 100000),
-						body_format: parsed.text !== undefined ? "text" : "html",
+						body_format: "text",
 						truncated: body.length > 100000,
 						attachments: parsed.attachments.map((a) => ({
 							filename: a.filename,
