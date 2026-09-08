@@ -1,11 +1,11 @@
 # MCP on Cloudflare Workers
 
-基于官方模板，使用 Bearer Key 保护 `/mcp`。根目录状态页和 `/204` 保持公开，不检测邮箱健康状态。
+基于官方模板，使用秘密 URL `/mcp/<随机密钥>`，供单人自用。根目录状态页和 `/204` 保持公开，不检测邮箱健康状态。
 
 ## 结构
 
 - `src/index.ts`：状态页、路由、UUID / Unix 时间工具和邮件工具注册。
-- `src/auth.ts`：Authorization 校验；缺少服务端 Key 返回 503，错误凭据返回 401。
+- `src/auth.ts`：秘密路径校验；缺少有效配置返回 503，错误路径返回 404。不接受 Authorization 或查询参数中的密钥。
 - `src/mail.ts`：单邮箱 IMAPS 查询、正文解析、保存草稿；每次调用独立连接。
 - `wrangler.jsonc`：部署名、域名、非敏感设置。
 - `tests/`：无需真实邮箱的测试。README、测试和 Git 文件不是运行入口；Wrangler 打包代码及依赖，目前也上传源码映射。
@@ -14,20 +14,20 @@
 
 QQ 邮箱需启用 IMAP 并生成授权码，不能使用登录密码。使用 `imap.qq.com:993`，仅支持隐式 TLS，不支持明文或 STARTTLS。
 
-| Worker 变量         | 用途                               | 现有 .env 对应名称 |
-| ------------------- | ---------------------------------- | ------------------ |
-| IMAP_HOST           | 主机，已在 Wrangler 设置           | IMAP_SERVER        |
-| IMAP_PORT           | 端口，默认 993                     | IMAP_PORT          |
-| IMAP_USER           | 完整邮箱地址，Secret               | IMAP_ACCOUNT       |
-| IMAP_PASSWORD       | 邮箱授权码，Secret                 | IMAP_SECRET        |
-| MCP_API_KEY         | 至少 32 字符的随机访问密钥，Secret | 无                 |
-| MAIL_FROM           | 可选，默认 IMAP_USER               | 无                 |
-| IMAP_DRAFTS_MAILBOX | 可选，默认自动识别 Drafts 标记     | 无                 |
+| Worker 变量         | 用途                                        | 现有 .env 对应名称 |
+| ------------------- | ------------------------------------------- | ------------------ |
+| IMAP_HOST           | 主机，已在 Wrangler 设置                    | IMAP_SERVER        |
+| IMAP_PORT           | 端口，默认 993                              | IMAP_PORT          |
+| IMAP_USER           | 完整邮箱地址，Secret                        | IMAP_ACCOUNT       |
+| IMAP_PASSWORD       | 邮箱授权码，Secret                          | IMAP_SECRET        |
+| MCP_URL_TOKEN       | 32 随机字节编码为 64 位小写十六进制，Secret | 无                 |
+| MAIL_FROM           | 可选，默认 IMAP_USER                        | 无                 |
+| IMAP_DRAFTS_MAILBOX | 可选，默认自动识别 Drafts 标记              | 无                 |
 
 线上配置使用交互命令，不把密码放进命令参数或 Git：
 
 ```bash
-npx wrangler secret put MCP_API_KEY
+npx wrangler secret put MCP_URL_TOKEN
 npx wrangler secret put IMAP_USER
 npx wrangler secret put IMAP_PASSWORD
 npx wrangler deploy
@@ -37,13 +37,17 @@ npx wrangler deploy
 
 ## 连接和工具
 
-Streamable HTTP 地址：`https://r3.net.eu.org/mcp`（备用 `https://mcp.lev1s.workers.dev/mcp`）。每个请求必须包含：
+在 ChatGPT 创建自定义 MCP，选择“无身份验证”，粘贴完整秘密 URL。无需请求头、OAuth Client ID 或 Client Secret。地址格式：
 
 ```text
-Authorization: Bearer <MCP_API_KEY>
+https://r3.net.eu.org/mcp/<MCP_URL_TOKEN>
 ```
 
-客户端必须支持自定义 Authorization 头；本版不是 OAuth，也不提供浏览器跨域 CORS。Key 拥有所有工具权限，只交给可信客户端；泄漏时更新 Secret 并替换客户端配置。不接受 URL 查询参数里的密钥。
+备用域名也支持相同秘密路径。旧 `/mcp` 和旧 Bearer Key 不再有效。本版不是 OAuth，也不提供浏览器跨域 CORS。
+
+部署时生成的完整链接保存在本机 `/home/lev1s/.config/mcp/private-url`，权限 600，不在 Git 中。只粘贴到可信客户端设置，不要在浏览器地址栏、聊天或截图中传播。拿到链接的人可以读取邮件和保存草稿，不能发送。
+
+Worker observability 已关闭以减少完整请求 URL 留存，但不能保证 Cloudflare、客户端或其他基础设施不记录 URL。这个方案是持有链接即获授权，不验证个人身份，也没有自动过期、按客户端撤销或 OAuth 权限管理。泄漏时生成新 MCP_URL_TOKEN、更新 Cloudflare Secret，并替换所有客户端链接；旧链接随之失效。请通过密码管理器保管。
 
 | 工具                    | 用途                                                                                              |
 | ----------------------- | ------------------------------------------------------------------------------------------------- |

@@ -60,8 +60,8 @@ function createTextStatus(request: Request) {
 MCP WORKER // ONLINE
 --------------------
 service  : UUID + Unix Time + Mail Tools
-auth     : Bearer key required on /mcp
-mcp      : ${origin}/mcp
+auth     : Private URL required
+mcp      : Private endpoint (not published)
 health   : ${origin}/204
 
 tools
@@ -440,8 +440,8 @@ function createHtmlStatus(request: Request) {
 
     <section class="grid">
       <article class="panel">
-        <h2 class="panel-title">Routes // MCP requires Bearer key</h2>
-        <div class="route"><span class="verb">POST</span><code>${origin}/mcp</code></div>
+        <h2 class="panel-title">Routes // MCP requires private URL</h2>
+        <div class="route"><span class="verb">POST</span><code>Private MCP endpoint</code></div>
         <div class="route"><span class="verb">GET</span><code>${origin}/204</code></div>
       </article>
 
@@ -457,7 +457,7 @@ function createHtmlStatus(request: Request) {
 
     <footer>
       <span>r3.net.eu.org</span>
-      <span>Bearer auth // Single mailbox // Mailbox health not probed</span>
+      <span>Private URL // Single mailbox // Mailbox health not probed</span>
     </footer>
   </main>
 </body>
@@ -534,10 +534,17 @@ export default {
 			});
 		}
 
-		if (url.pathname !== "/mcp" && url.pathname !== "/mcp/")
-			return new Response("Not Found", { status: 404 });
-		const denied = await authorizeMcp(request, env.MCP_API_KEY);
+		if (!url.pathname.startsWith("/mcp/")) return new Response("Not Found", { status: 404 });
+		const denied = await authorizeMcp(request, env.MCP_URL_TOKEN);
 		if (denied) return denied;
-		return createMcpHandler(() => createServer(env))(request, env, ctx);
+		const response = await createMcpHandler(() => createServer(env), { route: url.pathname })(
+			request,
+			env,
+			ctx,
+		);
+		const headers = new Headers(response.headers);
+		headers.set("Cache-Control", "no-store");
+		headers.set("Referrer-Policy", "no-referrer");
+		return new Response(response.body, { status: response.status, headers });
 	},
 } satisfies ExportedHandler<Env>;

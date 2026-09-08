@@ -82,16 +82,21 @@ test("missing Drafts folder never writes", async () => {
 	}
 });
 
-test("auth fails closed and accepts only correct Bearer header", async () => {
-	const key = "x".repeat(48);
-	const request = (token) =>
-		new Request("https://example.com/mcp?key=" + key, {
-			headers: token ? { Authorization: token } : {},
-		});
-	assert.equal((await authorizeMcp(request(), undefined)).status, 503);
-	assert.equal((await authorizeMcp(request(), key)).status, 401);
-	assert.equal((await authorizeMcp(request("Bearer wrong"), key)).status, 401);
-	assert.equal(await authorizeMcp(request("Bearer " + key), key), null);
+test("private URL fails closed and rejects old Bearer and query credentials", async () => {
+	const key = "a".repeat(64);
+	const request = (path) =>
+		new Request("https://example.com" + path, { headers: { Authorization: "Bearer " + key } });
+	assert.equal((await authorizeMcp(request("/mcp/" + key), undefined)).status, 503);
+	for (const path of [
+		"/mcp",
+		"/mcp?key=" + key,
+		"/mcp/" + "b".repeat(64),
+		"/mcp/" + key + "/",
+		"/mcp/short",
+	]) {
+		assert.equal((await authorizeMcp(request(path), key)).status, 404);
+	}
+	assert.equal(await authorizeMcp(new Request("https://example.com/mcp/" + key), key), null);
 });
 test("Unicode MIME round trip and address injection rejection", async () => {
 	const subject = "中文测试标题".repeat(20);

@@ -5,7 +5,7 @@ import { z } from "zod";
 import type { McpServer } from "@modelcontextprotocol/server";
 
 export interface MailEnv {
-	MCP_API_KEY?: string;
+	MCP_URL_TOKEN?: string;
 	IMAP_HOST?: string;
 	IMAP_PORT?: string;
 	IMAP_USER?: string;
