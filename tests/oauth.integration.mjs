@@ -13,18 +13,8 @@ const options = {
 	kvNamespaces: ["OAUTH_KV"],
 	ratelimits: { AUTH_LIMITER: { namespace_id: "1", simple: { limit: 1000, period: 60 } } },
 	bindings: { AUTH_PASSWORD: password },
-	outboundService: async (request) => {
-		if (request.url !== "https://client.example/oauth.json")
-			return new Response(null, { status: 503 });
-		return Response.json({
-			client_id: request.url,
-			client_name: "CIMD test",
-			redirect_uris: ["https://client.example/callback"],
-			token_endpoint_auth_method: "none",
-			grant_types: ["authorization_code", "refresh_token"],
-			response_types: ["code"],
-		});
-	},
+	// No client-metadata fetch is allowed: reproduce the upstream 403 safely.
+	outboundService: async () => new Response(null, { status: 403 }),
 };
 const mf = new Miniflare(convertV4MiniflareOptions(options));
 const request = (path, options = {}) =>
@@ -36,6 +26,8 @@ try {
 	assert.equal((await request("/mcp")).status, 401);
 	const metadata = await (await request("/.well-known/oauth-authorization-server")).json();
 	assert.equal(metadata.issuer, origin);
+	assert.notEqual(metadata.client_id_metadata_document_supported, true);
+	assert.equal(metadata.registration_endpoint, origin + "/register");
 	assert.ok(metadata.code_challenge_methods_supported.includes("S256"));
 	const resource = await (await request("/.well-known/oauth-protected-resource/mcp")).json();
 	assert.equal(resource.resource, origin + "/mcp");
@@ -47,7 +39,8 @@ try {
 			redirect_uris: ["https://client.example/callback"],
 			grant_types: ["authorization_code", "refresh_token"],
 			response_types: ["code"],
-			token_endpoint_auth_method: "none",
+			token_endpoint_auth_method: "private_key_jwt",
+			token_endpoint_auth_methods_supported: ["none", "private_key_jwt"],
 		}),
 	});
 	assert.equal(registration.status, 201);
@@ -74,8 +67,10 @@ try {
 	const cookie = page.headers.get("set-cookie").split(";")[0];
 	const csrf = (await page.text()).match(/name="csrf" value="([^"]+)"/)[1];
 	const cimd = new URLSearchParams(params);
-	cimd.set("client_id", "https://client.example/oauth.json");
-	assert.equal((await request("/authorize?" + cimd)).status, 200, "CIMD clients need no DCR");
+	cimd.set("client_id", "https://chatgpt.com/oauth/client.json");
+	const staleClient = await request("/authorize?" + cimd);
+	assert.equal(staleClient.status, 400);
+	assert.ok((await staleClient.text()).includes("DCR"), "old links explain how to reconnect");
 	const consent = await request("/authorize?" + params, {
 		...form({ csrf, password, decision: "approve" }),
 		headers: {
@@ -117,19 +112,48 @@ try {
 	}
 	const listed = await rpc("tools/list", {});
 	assert.equal(listed.status, 200);
-	const listBody = await listed.text();
+	async function rpcResult(response) {
+		assert.equal(response.status, 200);
+		const text = await response.text();
+		return (
+			text.startsWith("{")
+				? JSON.parse(text)
+				: text
+						.split("\n")
+						.filter((line) => line.startsWith("data: "))
+						.map((line) => JSON.parse(line.slice(6)))
+						.find((message) => message.result)
+		).result;
+	}
+	const toolList = (await rpcResult(listed)).tools;
 	for (const name of [
 		"find_email",
 		"read_email",
 		"draft_email",
 		"generate_uuid_from_seed",
 		"get_unix_timestamp",
-	])
-		assert.ok(listBody.includes(name));
-	assert.equal(
-		(await rpc("tools/call", { name: "get_unix_timestamp", arguments: {} })).status,
-		200,
+	]) {
+		const tool = toolList.find((tool) => tool.name === name);
+		assert.equal(tool.outputSchema.type, "object");
+		assert.ok(Object.keys(tool.outputSchema.properties).length);
+		assert.ok(tool.title);
+		assert.equal(typeof tool.annotations.readOnlyHint, "boolean");
+		const { _meta: meta } = tool;
+		assert.equal(meta.securitySchemes[0].type, "oauth2");
+	}
+	for (const [name, args, field, type] of [
+		["get_unix_timestamp", {}, "timestamp", "number"],
+		["generate_uuid_from_seed", { seed: "schema-test" }, "uuid", "string"],
+	]) {
+		const result = await rpcResult(await rpc("tools/call", { name, arguments: args }));
+		assert.equal(typeof result.structuredContent[field], type);
+		assert.deepEqual(result.structuredContent, JSON.parse(result.content[0].text));
+	}
+	const mailError = await rpcResult(
+		await rpc("tools/call", { name: "find_email", arguments: {} }),
 	);
+	assert.equal(mailError.isError, true);
+	assert.equal(mailError.structuredContent, undefined);
 	assert.equal(
 		(
 			await request(
@@ -191,7 +215,7 @@ try {
 		"authorization codes cannot be reused",
 	);
 	console.log(
-		"OAuth integration passed: discovery, DCR, CIMD, consent, PKCE, redirect validation, code replay, 5 tools, resource binding, password rotation, refresh and revocation.",
+		"OAuth integration passed: DCR with upstream 403, consent, PKCE, redirects, 5 output schemas, structured results, safe mail errors, password rotation, refresh and revocation.",
 	);
 } finally {
 	await mf.dispose();

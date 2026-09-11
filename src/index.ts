@@ -468,12 +468,21 @@ function createHtmlStatus(request: Request) {
 function createServer(env: MailEnv) {
 	const server = new McpServer({
 		name: "MCP",
-		version: "1.1.0",
+		version: "1.2.0",
 	});
 
 	server.registerTool(
 		"generate_uuid_from_seed",
 		{
+			title: "Generate UUID from seed",
+			_meta: { securitySchemes: [{ type: "oauth2", scopes: [MCP_SCOPE] }] },
+			annotations: {
+				readOnlyHint: true,
+				destructiveHint: false,
+				idempotentHint: true,
+				openWorldHint: false,
+			},
+			outputSchema: z.object({ uuid: z.string().uuid() }),
 			description:
 				"Generate a deterministic UUID v5 from a seed. The same seed always returns the same UUID.",
 			inputSchema: z.object({
@@ -484,7 +493,8 @@ function createServer(env: MailEnv) {
 			const uuid = uuidv5(seed, uuidv5.URL);
 
 			return {
-				content: [{ type: "text", text: uuid }],
+				content: [{ type: "text", text: JSON.stringify({ uuid }) }],
+				structuredContent: { uuid },
 			};
 		},
 	);
@@ -492,6 +502,15 @@ function createServer(env: MailEnv) {
 	server.registerTool(
 		"get_unix_timestamp",
 		{
+			title: "Get Unix timestamp",
+			_meta: { securitySchemes: [{ type: "oauth2", scopes: [MCP_SCOPE] }] },
+			annotations: {
+				readOnlyHint: true,
+				destructiveHint: false,
+				idempotentHint: false,
+				openWorldHint: false,
+			},
+			outputSchema: z.object({ timestamp: z.number().int().nonnegative() }),
 			description:
 				"Return the current Unix timestamp as whole seconds since 1970-01-01T00:00:00Z.",
 			inputSchema: z.object({}),
@@ -500,7 +519,8 @@ function createServer(env: MailEnv) {
 			const timestamp = Math.floor(Date.now() / 1000);
 
 			return {
-				content: [{ type: "text", text: String(timestamp) }],
+				content: [{ type: "text", text: JSON.stringify({ timestamp }) }],
+				structuredContent: { timestamp },
 			};
 		},
 	);
@@ -545,7 +565,11 @@ const oauth = new OAuthProvider<AppEnv>({
 	authorizeEndpoint: "/authorize",
 	tokenEndpoint: "/token",
 	clientRegistrationEndpoint: "/register",
-	clientIdMetadataDocumentEnabled: true,
+	// Keep a connection's client ID valid; only its access/refresh tokens expire.
+	clientRegistrationTTL: undefined,
+	// ChatGPT's metadata URL returns HTTP 403 to workerd fetch. DCR is the
+	// supported OAuth alternative; never trust a client URL without fetching it.
+	clientIdMetadataDocumentEnabled: false,
 	scopesSupported: [MCP_SCOPE],
 	accessTokenTTL: 3600,
 	refreshTokenTTL: 30 * 86400,

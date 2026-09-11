@@ -25,6 +25,14 @@ const addressSchema = z
 	.max(254)
 	.regex(/^[\x21-\x7e]+$/);
 const MAX_MESSAGE_BYTES = 2 * 1024 * 1024;
+const mailToolMeta = { securitySchemes: [{ type: "oauth2", scopes: ["mcp:access"] }] };
+const outputAddress = z.object({
+	name: z.string().optional(),
+	address: z.string().optional(),
+	group: z
+		.array(z.object({ name: z.string().optional(), address: z.string().optional() }))
+		.optional(),
+});
 
 class MailError extends Error {}
 
@@ -132,7 +140,12 @@ async function withMailbox<T>(env: MailEnv, operation: (client: ImapFlow) => Pro
 }
 
 function result(value: unknown) {
-	return { content: [{ type: "text" as const, text: JSON.stringify(value) }] };
+	// Match the JSON wire representation (Dates become strings; undefined is omitted).
+	const text = JSON.stringify(value);
+	return {
+		content: [{ type: "text" as const, text }],
+		structuredContent: JSON.parse(text) as Record<string, unknown>,
+	};
 }
 
 async function runMail(operation: () => Promise<unknown>) {
@@ -197,6 +210,23 @@ export function registerMailTools(server: McpServer, env: MailEnv) {
 	server.registerTool(
 		"find_email",
 		{
+			title: "Find email",
+			_meta: mailToolMeta,
+			outputSchema: z.object({
+				mailbox: z.string(),
+				uid_validity: z.string(),
+				messages: z.array(
+					z.object({
+						uid: z.number().int().positive(),
+						subject: z.string().optional(),
+						from: z.array(outputAddress).optional(),
+						date: z.string().optional(),
+						size: z.number().int().nonnegative().optional(),
+						flags: z.array(z.string()),
+					}),
+				),
+				next_before_uid: z.number().int().positive().nullable(),
+			}),
 			annotations: {
 				readOnlyHint: true,
 				destructiveHint: false,
@@ -281,6 +311,25 @@ export function registerMailTools(server: McpServer, env: MailEnv) {
 	server.registerTool(
 		"read_email",
 		{
+			title: "Read email",
+			_meta: mailToolMeta,
+			outputSchema: z.object({
+				mailbox: z.string(),
+				uid: z.number().int().positive(),
+				uid_validity: z.string(),
+				subject: z.string().optional(),
+				from: outputAddress.optional(),
+				to: z.array(outputAddress).optional(),
+				cc: z.array(outputAddress).optional(),
+				date: z.string().optional(),
+				message_id: z.string().optional(),
+				body: z.string(),
+				body_format: z.literal("text"),
+				truncated: z.boolean(),
+				attachments: z.array(
+					z.object({ filename: z.string().nullable(), mime_type: z.string() }),
+				),
+			}),
 			annotations: {
 				readOnlyHint: true,
 				destructiveHint: false,
@@ -345,6 +394,16 @@ export function registerMailTools(server: McpServer, env: MailEnv) {
 	server.registerTool(
 		"draft_email",
 		{
+			title: "Save email draft",
+			_meta: mailToolMeta,
+			outputSchema: z.object({
+				saved: z.literal(true),
+				sent: z.literal(false),
+				mailbox: z.string(),
+				uid: z.number().int().positive().nullable(),
+				uid_validity: z.string().nullable(),
+				message_id: z.string(),
+			}),
 			annotations: {
 				readOnlyHint: false,
 				destructiveHint: false,

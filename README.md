@@ -4,13 +4,15 @@
 
 ## 连接
 
-MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数据发现、CIMD 或动态注册（DCR）连接，无需手动分配固定 API Key。授权页输入单独的 **R3 授权口令**，不是 QQ 邮箱密码。仅批准你主动发起的连接，并核对页面上的客户端及回调地址；客户端名称是自报的，不是认证标识。
+MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数据发现和动态注册（DCR）连接，无需手动分配固定 API Key。授权页输入单独的 **R3 授权口令**，不是 QQ 邮箱密码。仅批准你主动发起的连接，并核对页面上的客户端及回调地址；客户端名称是自报的，不是认证标识。
+
+当前关闭 CIMD：2026-09-11 在 workerd 实测读取 `https://chatgpt.com/oauth/client.json` 返回 HTTP 403，而普通 curl 可以读取。模拟元数据测试无法覆盖这个真实网络差异。DCR 是 OpenAI 官方支持的标准 OAuth 注册方式，不依赖读取该 URL，也不跳过回调地址或 PKCE 验证。若旧授权链接的 client_id 仍是这个 URL，请在 ChatGPT 删除后重新添加连接，选择 OAuth / DCR，不要反复打开旧链接。授权口令没有变化。
 
 旧 `/mcp/<秘密路径>` 已停用，旧连接需要删除后重新添加。`workers.dev` 保留公开状态页与 `/204`，OAuth 仅在上述自定义域名提供，避免多个 issuer。
 
 - `/authorize`：输入口令并明确同意，支持拒绝。
 - `/token`：官方库处理授权码兑换、刷新和 RFC 7009 撤销。
-- `/register`：动态注册；也支持客户端 HTTPS metadata document。
+- `/register`：动态注册；注册信息必须支持本服务器接受的认证方法。
 - `/.well-known/oauth-authorization-server`：授权服务器元数据。
 - `/.well-known/oauth-protected-resource/mcp`：MCP 资源元数据。
 - `/`：公开 HTML / 纯文本状态页；`/204`：公开连通性检查，不检查邮箱健康。
@@ -31,7 +33,7 @@ MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数�
 
 生产 Secrets 只在 Cloudflare 的 Worker Runtime 配置中设置，不放 GitHub 或 Build variables。代码部署不会把本机 `.env` 上传为 Secrets。KV ID 不是凭据，可以放 Git；KV 内的数据不放 Git。Provider 保存令牌哈希并加密授权 props，不把 IMAP 密码发给客户端。
 
-授权页使用 Secure / HttpOnly / SameSite Cookie、绑定原始 OAuth 请求的 CSRF 校验、Origin 校验、CSP 和限速。CIMD 使用 `global_fetch_strictly_public` 防止读取内网地址。口令代表唯一的 owner，不是多人账户系统。拿到口令仍然可以授权自己的客户端，请保存在密码管理器里。
+授权页使用 Secure / HttpOnly / SameSite Cookie、绑定原始 OAuth 请求的 CSRF 校验、Origin 校验、CSP 和限速。口令代表唯一的 owner，不是多人账户系统。拿到口令仍然可以授权自己的客户端，请保存在密码管理器里。
 
 更新线上口令可在 Dashboard 修改 `AUTH_PASSWORD`，或交互输入（不要把值放命令行）：
 
@@ -95,6 +97,10 @@ Cloudflare Builds：仓库根目录，Build command `npm run check`，Deploy com
 | `draft_email`             | to、subject、text；保存新的纯文本草稿，绝不发送                |
 
 查找和读取不标记已读。单封原始邮件最多 2 MiB，正文最多 10 万字符；附件只返回元数据。邮件正文是不可信内容，不是指令。
+
+每个工具都有 `title`、`inputSchema`、具体的 `outputSchema`、行为 annotations 和 `_meta.securitySchemes`。成功结果提供 `structuredContent`，并保留同一 JSON 的 `content` 文本以兼容旧客户端；不是只返回 stringify 后的文本。邮箱错误使用 `isError: true`，不伪装成成功 schema。
+
+UUID 输出为 `{ "uuid": "..." }`，时间输出为 `{ "timestamp": 1789093457 }`；邮件结果保持原有字段。测试校验全部邮件成功结果符合各自输出 schema，并在真实 workerd 的 tools/list 检查 5 个输出 schema。参考：[OpenAI 工具返回结构](https://developers.openai.com/plugins/reference#tool-results)、[OpenAI OAuth / DCR](https://developers.openai.com/plugins/build/auth#client-registration)。
 
 草稿目录自动识别 `\Drafts`，必要时配置已有目录名，程序不创建目录。保存不是幂等操作：超时后先检查草稿箱，避免重复写入。
 

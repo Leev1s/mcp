@@ -68,6 +68,11 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 	if (!env.AUTH_PASSWORD || env.AUTH_PASSWORD.length < 32)
 		return reply("Authorization is not configured.", 503);
 	if (url.href.length > 8192) return reply("Request too large", 414);
+	if (url.searchParams.get("client_id")?.startsWith("https://"))
+		return reply(
+			"此连接仍在使用旧 CIMD 配置。请在 ChatGPT 删除并重新添加 MCP 连接，使用 OAuth 动态客户端注册（DCR），再重新授权。",
+			400,
+		);
 	if (request.method === "POST") {
 		if (request.headers.get("origin") !== OAUTH_ORIGIN) return reply("Invalid origin", 403);
 		if (

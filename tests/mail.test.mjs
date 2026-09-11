@@ -48,7 +48,20 @@ function registry(config = env) {
 	registerMailTools(
 		{
 			registerTool(name, definition, callback) {
-				tools[name] = (args) => callback(definition.inputSchema.parse(args));
+				tools[name] = async (args) => {
+					assert.ok(definition.outputSchema, `${name} must declare outputSchema`);
+					const { _meta: meta } = definition;
+					assert.equal(meta.securitySchemes[0].type, "oauth2");
+					const result = await callback(definition.inputSchema.parse(args));
+					if (!result.isError) {
+						definition.outputSchema.parse(result.structuredContent);
+						assert.deepEqual(
+							result.structuredContent,
+							JSON.parse(result.content[0].text),
+						);
+					} else assert.equal(result.structuredContent, undefined);
+					return result;
+				};
 			},
 		},
 		config,
@@ -153,7 +166,7 @@ test("draft appends Draft flag, never sends, and rejects header injection", asyn
 	assert.equal(result.sent, false);
 	assert.equal(instance.appended.path, "Drafts");
 	assert.ok(instance.appended.flags.includes("\\Draft"));
-	assert.throws(() =>
+	await assert.rejects(() =>
 		tools.draft_email({ to: ["you@example.com"], subject: "Hi\r\nBcc: x", text: "" }),
 	);
 });
