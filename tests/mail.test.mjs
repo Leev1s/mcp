@@ -1,7 +1,6 @@
 import { test, mock } from "node:test";
 import assert from "node:assert/strict";
 import PostalMime from "postal-mime";
-import { authorizeMcp } from "../src/auth.ts";
 
 let instance;
 let mailSource = Buffer.from("Subject: hello\r\n\r\nbody");
@@ -88,22 +87,6 @@ test("missing Drafts folder never writes", async () => {
 	}
 });
 
-test("private URL fails closed and rejects old Bearer and query credentials", async () => {
-	const key = "a".repeat(64);
-	const request = (path) =>
-		new Request("https://example.com" + path, { headers: { Authorization: "Bearer " + key } });
-	assert.equal((await authorizeMcp(request("/mcp/" + key), undefined)).status, 503);
-	for (const path of [
-		"/mcp",
-		"/mcp?key=" + key,
-		"/mcp/" + "b".repeat(64),
-		"/mcp/" + key + "/",
-		"/mcp/short",
-	]) {
-		assert.equal((await authorizeMcp(request(path), key)).status, 404);
-	}
-	assert.equal(await authorizeMcp(new Request("https://example.com/mcp/" + key), key), null);
-});
 test("Unicode MIME round trip and address injection rejection", async () => {
 	const subject = "中文测试标题".repeat(20);
 	const mail = await PostalMime.parse(

@@ -19,7 +19,15 @@
 		},
 	],
 	"compatibility_date": "2026-07-02",
-	"compatibility_flags": ["nodejs_compat"],
+	"compatibility_flags": ["nodejs_compat", "global_fetch_strictly_public"],
+	"kv_namespaces": [{ "binding": "OAUTH_KV", "id": "ddbfa9acad9f486db21b9137b5ff2306" }],
+	"ratelimits": [
+		{
+			"name": "AUTH_LIMITER",
+			"namespace_id": "31092601",
+			"simple": { "limit": 10, "period": 60 },
+		},
+	],
 	"observability": {
 		"enabled": false,
 	},

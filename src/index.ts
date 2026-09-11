@@ -2,7 +2,8 @@ import { McpServer } from "@modelcontextprotocol/server";
 import { createMcpHandler } from "agents/mcp/server";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
-import { authorizeMcp } from "./auth";
+import OAuthProvider from "@cloudflare/workers-oauth-provider";
+import { handleAuthorize, fingerprint, MCP_SCOPE, OAUTH_ORIGIN, type AuthEnv } from "./auth";
 import { registerMailTools, type MailEnv } from "./mail";
 
 const BASE_STATUS_HEADERS = {
@@ -60,8 +61,8 @@ function createTextStatus(request: Request) {
 MCP WORKER // ONLINE
 --------------------
 service  : UUID + Unix Time + Mail Tools
-auth     : Private URL required
-mcp      : Private endpoint (not published)
+auth     : OAuth 2.1 / owner consent
+mcp      : ${OAUTH_ORIGIN}/mcp
 health   : ${origin}/204
 
 tools
@@ -440,8 +441,8 @@ function createHtmlStatus(request: Request) {
 
     <section class="grid">
       <article class="panel">
-        <h2 class="panel-title">Routes // MCP requires private URL</h2>
-        <div class="route"><span class="verb">POST</span><code>Private MCP endpoint</code></div>
+        <h2 class="panel-title">Routes // OAuth protected</h2>
+        <div class="route"><span class="verb">POST</span><code>https://r3.net.eu.org/mcp</code></div>
         <div class="route"><span class="verb">GET</span><code>${origin}/204</code></div>
       </article>
 
@@ -457,7 +458,7 @@ function createHtmlStatus(request: Request) {
 
     <footer>
       <span>r3.net.eu.org</span>
-      <span>Private URL // Single mailbox // Mailbox health not probed</span>
+      <span>OAuth 2.1 // Single mailbox // Mailbox health not probed</span>
     </footer>
   </main>
 </body>
@@ -508,8 +509,10 @@ function createServer(env: MailEnv) {
 	return server;
 }
 
-export default {
-	async fetch(request: Request, env: Env & MailEnv, ctx: ExecutionContext) {
+type AppEnv = Env & MailEnv & AuthEnv;
+
+const publicHandler = {
+	async fetch(request: Request, env: AppEnv) {
 		const url = new URL(request.url);
 		const isReadRequest = request.method === "GET" || request.method === "HEAD";
 
@@ -534,17 +537,86 @@ export default {
 			});
 		}
 
-		if (!url.pathname.startsWith("/mcp/")) return new Response("Not Found", { status: 404 });
-		const denied = await authorizeMcp(request, env.MCP_URL_TOKEN);
-		if (denied) return denied;
-		const response = await createMcpHandler(() => createServer(env), { route: url.pathname })(
-			request,
-			env,
-			ctx,
-		);
+		return handleAuthorize(request, env);
+	},
+} satisfies ExportedHandler<AppEnv>;
+
+const oauth = new OAuthProvider<AppEnv>({
+	authorizeEndpoint: "/authorize",
+	tokenEndpoint: "/token",
+	clientRegistrationEndpoint: "/register",
+	clientIdMetadataDocumentEnabled: true,
+	scopesSupported: [MCP_SCOPE],
+	accessTokenTTL: 3600,
+	refreshTokenTTL: 30 * 86400,
+	resourceMetadata: {
+		resource: `${OAUTH_ORIGIN}/mcp`,
+		authorization_servers: [OAUTH_ORIGIN],
+		scopes_supported: [MCP_SCOPE],
+		resource_name: "R3 MCP",
+	},
+	apiRoute: "/mcp",
+	apiHandler: {
+		async fetch(request, env, ctx) {
+			const token = await env.OAUTH_PROVIDER.unwrapToken<{
+				userId: string;
+				credentialVersion: string;
+			}>(request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "");
+			if (
+				!env.AUTH_PASSWORD ||
+				env.AUTH_PASSWORD.length < 32 ||
+				token?.grant.props.userId !== "owner" ||
+				token.grant.props.credentialVersion !== fingerprint(env.AUTH_PASSWORD)
+			) {
+				return new Response("Reauthorization required", {
+					status: 401,
+					headers: {
+						"WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="${OAUTH_ORIGIN}/.well-known/oauth-protected-resource/mcp"`,
+					},
+				});
+			}
+			if (!token.scope.includes(MCP_SCOPE))
+				return new Response("Insufficient scope", {
+					status: 403,
+					headers: {
+						"WWW-Authenticate": `Bearer error="insufficient_scope", scope="${MCP_SCOPE}"`,
+					},
+				});
+			return createMcpHandler(() => createServer(env), { route: "/mcp" })(request, env, ctx);
+		},
+	},
+	defaultHandler: publicHandler,
+	// Preserve standard OAuth error responses without logging request details.
+	onError: () => {},
+});
+
+export default {
+	async fetch(request: Request, env: AppEnv, ctx: ExecutionContext) {
+		const url = new URL(request.url);
+		const isPublic = url.pathname === "/" || url.pathname === "/204";
+		// One canonical issuer; legacy secret paths never reach the MCP handler.
+		if (
+			(!isPublic && url.origin !== OAUTH_ORIGIN) ||
+			(url.pathname.startsWith("/mcp") && url.pathname !== "/mcp")
+		)
+			return new Response("Not Found", { status: 404 });
+		if (
+			url.pathname === "/register" &&
+			request.method === "POST" &&
+			!(
+				await env.AUTH_LIMITER.limit({
+					key: "register:" + (request.headers.get("cf-connecting-ip") ?? "unknown"),
+				})
+			).success
+		)
+			return new Response("Too many requests", {
+				status: 429,
+				headers: { "Retry-After": "60", "Cache-Control": "no-store" },
+			});
+		const response = await oauth.fetch(request, env, ctx);
 		const headers = new Headers(response.headers);
 		headers.set("Cache-Control", "no-store");
 		headers.set("Referrer-Policy", "no-referrer");
 		return new Response(response.body, { status: response.status, headers });
 	},
-} satisfies ExportedHandler<Env>;
+} satisfies ExportedHandler<AppEnv>;
