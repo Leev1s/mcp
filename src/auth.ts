@@ -74,7 +74,12 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 			400,
 		);
 	if (request.method === "POST") {
-		if (request.headers.get("origin") !== OAUTH_ORIGIN) return reply("Invalid origin", 403);
+		const requestOrigin = request.headers.get("origin");
+		// Some embedded OAuth webviews submit native forms with Origin: null (or
+		// omit Origin). The signed, SameSite CSRF cookie below remains mandatory;
+		// reject only an explicit foreign origin.
+		if (requestOrigin && requestOrigin !== OAUTH_ORIGIN && requestOrigin !== "null")
+			return reply("Invalid origin", 403);
 		if (
 			!(
 				await env.AUTH_LIMITER.limit({
@@ -108,6 +113,9 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 				{
 					headers: {
 						...headers,
+						// no-referrer makes native form POSTs send Origin: null.
+						// strict-origin preserves Origin without disclosing OAuth query parameters.
+						"Referrer-Policy": "strict-origin",
 						"Set-Cookie": `${COOKIE}=${cookie}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
 					},
 				},

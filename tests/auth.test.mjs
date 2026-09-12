@@ -41,18 +41,22 @@ async function formRequest(env, fields = {}, extraHeaders = {}) {
 	const url = OAUTH_ORIGIN + "/authorize" + query;
 	const page = await handleAuthorize(new Request(url), env);
 	const html = await page.text();
+	assert.equal(page.headers.get("referrer-policy"), "strict-origin");
 	assert.ok(!html.includes("<script>"));
 	assert.ok(html.includes("&lt;script&gt;"));
 	assert.ok(page.headers.get("content-security-policy").includes("frame-ancestors 'none'"));
 	const csrf = html.match(/name="csrf" value="([^"]+)"/)[1];
+	const requestHeaders = {
+		Origin: OAUTH_ORIGIN,
+		Cookie: page.headers.get("set-cookie").split(";")[0],
+		"Content-Type": "application/x-www-form-urlencoded",
+		...extraHeaders,
+	};
+	if (Object.hasOwn(extraHeaders, "Origin") && extraHeaders.Origin === undefined)
+		delete requestHeaders.Origin;
 	return new Request(url, {
 		method: "POST",
-		headers: {
-			Origin: OAUTH_ORIGIN,
-			Cookie: page.headers.get("set-cookie").split(";")[0],
-			"Content-Type": "application/x-www-form-urlencoded",
-			...extraHeaders,
-		},
+		headers: requestHeaders,
 		body: new URLSearchParams({ csrf, password, decision: "approve", ...fields }),
 	});
 }
@@ -74,6 +78,7 @@ test("owner password and explicit consent create a grant; cookie is cleared", as
 	assert.equal(response.status, 303);
 	assert.equal(grants(), 1);
 	assert.ok(response.headers.get("set-cookie").includes("Max-Age=0"));
+	assert.equal(response.headers.get("referrer-policy"), "no-referrer");
 });
 test("wrong password, missing CSRF, foreign origin and invalid decision never create grants", async () => {
 	for (const [fields, headers] of [
@@ -89,6 +94,14 @@ test("wrong password, missing CSRF, foreign origin and invalid decision never cr
 			403,
 		);
 		assert.equal(grants(), 0);
+	}
+});
+test("null or omitted Origin is accepted only with the signed CSRF form", async () => {
+	for (const extraHeaders of [{ Origin: "null" }, { Origin: undefined }]) {
+		const { env, grants } = fixture();
+		const response = await handleAuthorize(await formRequest(env, {}, extraHeaders), env);
+		assert.equal(response.status, 303);
+		assert.equal(grants(), 1);
 	}
 });
 test("deny preserves state and issuer without creating a grant", async () => {
