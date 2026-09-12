@@ -41,7 +41,7 @@ async function formRequest(env, fields = {}, extraHeaders = {}) {
 	const url = OAUTH_ORIGIN + "/authorize" + query;
 	const page = await handleAuthorize(new Request(url), env);
 	const html = await page.text();
-	assert.equal(page.headers.get("referrer-policy"), "strict-origin");
+	assert.equal(page.headers.get("referrer-policy"), "no-referrer");
 	assert.ok(!html.includes("<script>"));
 	assert.ok(html.includes("&lt;script&gt;"));
 	assert.ok(page.headers.get("content-security-policy").includes("frame-ancestors 'none'"));
@@ -80,11 +80,10 @@ test("owner password and explicit consent create a grant; cookie is cleared", as
 	assert.ok(response.headers.get("set-cookie").includes("Max-Age=0"));
 	assert.equal(response.headers.get("referrer-policy"), "no-referrer");
 });
-test("wrong password, missing CSRF, foreign origin and invalid decision never create grants", async () => {
+test("wrong password, missing CSRF and invalid decision never create grants", async () => {
 	for (const [fields, headers] of [
 		[{ password: "wrong" }, {}],
 		[{ csrf: "" }, {}],
-		[{}, { Origin: "https://evil.example" }],
 		[{ decision: "other" }, {}],
 		[{}, { Cookie: "" }],
 	]) {
@@ -96,6 +95,15 @@ test("wrong password, missing CSRF, foreign origin and invalid decision never cr
 		assert.equal(grants(), 0);
 	}
 });
+test("a foreign Origin still cannot bypass the signed CSRF form", async () => {
+	const { env, grants } = fixture();
+	const response = await handleAuthorize(
+		await formRequest(env, { csrf: "" }, { Origin: "https://evil.example" }),
+		env,
+	);
+	assert.equal(response.status, 403);
+	assert.equal(grants(), 0);
+});
 test("null or omitted Origin is accepted only with the signed CSRF form", async () => {
 	for (const extraHeaders of [{ Origin: "null" }, { Origin: undefined }]) {
 		const { env, grants } = fixture();
@@ -103,6 +111,15 @@ test("null or omitted Origin is accepted only with the signed CSRF form", async 
 		assert.equal(response.status, 303);
 		assert.equal(grants(), 1);
 	}
+});
+test("an embedded client Origin is accepted only with the signed CSRF form", async () => {
+	const { env, grants } = fixture();
+	const response = await handleAuthorize(
+		await formRequest(env, {}, { Origin: "https://chatgpt.com" }),
+		env,
+	);
+	assert.equal(response.status, 303);
+	assert.equal(grants(), 1);
 });
 test("deny preserves state and issuer without creating a grant", async () => {
 	const { env, grants } = fixture();

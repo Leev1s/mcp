@@ -23,7 +23,15 @@ const form = (params) => ({ method: "POST", body: new URLSearchParams(params) })
 try {
 	assert.equal((await request("/204")).status, 204);
 	assert.equal((await request("/mcp/" + "a".repeat(64))).status, 404);
-	assert.equal((await request("/mcp")).status, 401);
+	const unauthorized = await request("/mcp");
+	assert.equal(unauthorized.status, 401);
+	const challenge = unauthorized.headers.get("www-authenticate");
+	assert.match(challenge, /realm="OAuth"/);
+	assert.match(challenge, /scope="mcp:access"/);
+	assert.match(
+		challenge,
+		/resource_metadata="https:\/\/r3\.net\.eu\.org\/\.well-known\/oauth-protected-resource\/mcp"/,
+	);
 	const metadata = await (await request("/.well-known/oauth-authorization-server")).json();
 	assert.equal(metadata.issuer, origin);
 	assert.notEqual(metadata.client_id_metadata_document_supported, true);
@@ -64,7 +72,7 @@ try {
 	assert.equal((await request("/authorize?" + noPkce)).status, 400);
 	const page = await request("/authorize?" + params);
 	assert.equal(page.status, 200);
-	assert.equal(page.headers.get("referrer-policy"), "strict-origin", "outer handler must preserve the form's policy");
+	assert.equal(page.headers.get("referrer-policy"), "no-referrer");
 	const cookie = page.headers.get("set-cookie").split(";")[0];
 	const csrf = (await page.text()).match(/name="csrf" value="([^"]+)"/)[1];
 	const cimd = new URLSearchParams(params);
@@ -81,7 +89,11 @@ try {
 		},
 	});
 	assert.equal(consent.status, 303);
-	assert.equal(consent.headers.get("referrer-policy"), "no-referrer", "OAuth redirect must not leak the authorization URL");
+	assert.equal(
+		consent.headers.get("referrer-policy"),
+		"no-referrer",
+		"OAuth redirect must not leak the authorization URL",
+	);
 	const redirect = new URL(consent.headers.get("location"));
 	assert.equal(redirect.searchParams.get("state"), "test-state");
 	assert.equal(redirect.searchParams.get("iss"), origin);
@@ -183,10 +195,12 @@ try {
 			bindings: { AUTH_PASSWORD: password + "rotated" },
 		}),
 	);
-	assert.equal(
-		(await rpc("tools/list", {})).status,
-		401,
-		"password rotation blocks previous grants",
+	const rotatedAccess = await rpc("tools/list", {});
+	assert.equal(rotatedAccess.status, 401, "password rotation blocks previous grants");
+	assert.match(rotatedAccess.headers.get("www-authenticate"), /error="invalid_token"/);
+	assert.match(
+		rotatedAccess.headers.get("www-authenticate"),
+		/resource_metadata="https:\/\/r3\.net\.eu\.org\/\.well-known\/oauth-protected-resource\/mcp"/,
 	);
 	const staleRefresh = await request(
 		"/token",

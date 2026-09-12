@@ -18,9 +18,7 @@
 	},
 	"dependencies": {
 		"@cloudflare/workers-oauth-provider": "^0.10.3",
-		"@modelcontextprotocol/sdk": "1.30.0",
 		"@modelcontextprotocol/server": "2.0.0",
-		"agents": "^0.20.1",
 		"imapflow": "^2.0.0",
 		"postal-mime": "^3.0.0",
 		"uuid": "^14.0.2",

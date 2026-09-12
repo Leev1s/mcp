@@ -1,5 +1,4 @@
-import { McpServer } from "@modelcontextprotocol/server";
-import { createMcpHandler } from "agents/mcp/server";
+import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
@@ -14,6 +13,18 @@ const BASE_STATUS_HEADERS = {
 	"X-Frame-Options": "DENY",
 	"X-Robots-Tag": "noindex, nofollow",
 };
+
+const RESOURCE_METADATA_URL = `${OAUTH_ORIGIN}/.well-known/oauth-protected-resource/mcp`;
+
+function bearerChallenge(error: string, description: string, scope?: string) {
+	const parameters = [
+		`resource_metadata="${RESOURCE_METADATA_URL}"`,
+		`error="${error}"`,
+		`error_description="${description}"`,
+	];
+	if (scope) parameters.push(`scope="${scope}"`);
+	return `Bearer ${parameters.join(", ")}`;
+}
 
 const TEXT_STATUS_HEADERS = {
 	...BASE_STATUS_HEADERS,
@@ -581,7 +592,7 @@ const oauth = new OAuthProvider<AppEnv>({
 	},
 	apiRoute: "/mcp",
 	apiHandler: {
-		async fetch(request, env, ctx) {
+		async fetch(request, env) {
 			const token = await env.OAUTH_PROVIDER.unwrapToken<{
 				userId: string;
 				credentialVersion: string;
@@ -595,18 +606,26 @@ const oauth = new OAuthProvider<AppEnv>({
 				return new Response("Reauthorization required", {
 					status: 401,
 					headers: {
-						"WWW-Authenticate": `Bearer error="invalid_token", resource_metadata="${OAUTH_ORIGIN}/.well-known/oauth-protected-resource/mcp"`,
+						"WWW-Authenticate": bearerChallenge(
+							"invalid_token",
+							"Reauthorization required",
+						),
 					},
 				});
 			}
 			if (!token.scope.includes(MCP_SCOPE))
 				return new Response("Insufficient scope", {
-					status: 403,
+					status: 401,
 					headers: {
-						"WWW-Authenticate": `Bearer error="insufficient_scope", scope="${MCP_SCOPE}"`,
+						"WWW-Authenticate": bearerChallenge(
+							"insufficient_scope",
+							`The ${MCP_SCOPE} scope is required`,
+							MCP_SCOPE,
+						),
 					},
 				});
-			return createMcpHandler(() => createServer(env), { route: "/mcp" })(request, env, ctx);
+			const handler = createMcpHandler(() => createServer(env));
+			return handler.fetch(request);
 		},
 	},
 	defaultHandler: publicHandler,
