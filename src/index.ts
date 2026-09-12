@@ -640,7 +640,7 @@ export default {
 		const response = await oauth.fetch(request, env, ctx);
 		const headers = new Headers(response.headers);
 		headers.set("Cache-Control", "no-store");
-		headers.set("Referrer-Policy", "no-referrer");
+		if (!headers.has("Referrer-Policy")) headers.set("Referrer-Policy", "no-referrer");
 		return new Response(response.body, { status: response.status, headers });
 	},
 } satisfies ExportedHandler<AppEnv>;

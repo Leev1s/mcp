@@ -64,6 +64,7 @@ try {
 	assert.equal((await request("/authorize?" + noPkce)).status, 400);
 	const page = await request("/authorize?" + params);
 	assert.equal(page.status, 200);
+	assert.equal(page.headers.get("referrer-policy"), "strict-origin", "outer handler must preserve the form's policy");
 	const cookie = page.headers.get("set-cookie").split(";")[0];
 	const csrf = (await page.text()).match(/name="csrf" value="([^"]+)"/)[1];
 	const cimd = new URLSearchParams(params);
@@ -80,6 +81,7 @@ try {
 		},
 	});
 	assert.equal(consent.status, 303);
+	assert.equal(consent.headers.get("referrer-policy"), "no-referrer", "OAuth redirect must not leak the authorization URL");
 	const redirect = new URL(consent.headers.get("location"));
 	assert.equal(redirect.searchParams.get("state"), "test-state");
 	assert.equal(redirect.searchParams.get("iss"), origin);
