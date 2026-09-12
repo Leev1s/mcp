@@ -10,9 +10,7 @@
 		"auth:rotate": "node scripts/set-auth-password.mjs",
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
-		"format": "oxfmt --write .",
 		"lint:fix": "oxlint --fix",
-		"start": "wrangler dev",
 		"cf-typegen": "wrangler types --env-file .env.example",
 		"type-check": "tsc --noEmit"
 	},
@@ -27,7 +25,6 @@
 	"devDependencies": {
 		"@types/node": "^26.2.0",
 		"miniflare": "^5.20260910.0-alpha",
-		"oxfmt": "^0.56.0",
 		"oxlint": "^1.71.0",
 		"typescript": "6.0.3",
 		"wrangler": "^4.125.0"
