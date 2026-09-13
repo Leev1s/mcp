@@ -61,7 +61,7 @@ MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数�
 
 无需修改代码、GitHub Secrets、本地文件或运行 Wrangler。这里是 **Worker Settings**，不是 **Build Settings**。[Cloudflare 官方配置步骤](https://developers.cloudflare.com/workers/configuration/secrets/#via-the-dashboard)。Cloudflare 不再展示保存后的 Secret 原值，但允许替换；请在自己的密码管理器中保存口令。
 
-`env.AUTH_PASSWORD` 中的 `env` 是 Cloudflare 注入的运行环境，不是本机 `.env` 文件。程序每次请求读取它；32–256 字符是本项目的单人口令安全策略，不是 MCP 协议要求。口令缺失或长度不合要求时拒绝登录，并提示到 Dashboard 配置。
+`env.AUTH_PASSWORD` 中的 `env` 是 Cloudflare 注入的运行环境，不是本机 `.env` 文件。程序每次请求读取它；32–256 字符是本项目的单人口令安全策略，不是 MCP 协议要求。口令缺失或长度不合要求时拒绝登录。公开页面仅显示“授权服务暂时不可用”，不展示配置名称、后台操作说明或内部排错信息；管理说明仅保留在本文档中。
 
 更换口令会使旧访问令牌及旧授权刷新出来的令牌无法使用 MCP，所有客户端都需重新授权。授权里保存的口令指纹只是云端口令版本标记，与本地文件无关。不要恢复旧口令；旧授权记录会随生命周期过期，也可向 `/token` 发送标准撤销请求。Cloudflare KV 最终一致，撤销传播不保证瞬时全球完成。
 

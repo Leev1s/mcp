@@ -86,7 +86,7 @@ try {
 	cimd.set("client_id", "https://chatgpt.com/oauth/client.json");
 	const staleClient = await request("/authorize?" + cimd);
 	assert.equal(staleClient.status, 400);
-	assert.ok((await staleClient.text()).includes("DCR"), "old links explain how to reconnect");
+	assert.doesNotMatch(await staleClient.text(), /CIMD|DCR|AUTH_PASSWORD|Cloudflare|Deploy/);
 	const consent = await request("/authorize?" + params, {
 		...form({ csrf, password, decision: "approve" }),
 		headers: {

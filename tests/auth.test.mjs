@@ -11,6 +11,7 @@ import {
 
 const password = "test-only-passphrase-" + "x".repeat(32);
 const query = "?client_id=test&state=original";
+const adminCopy = /AUTH_PASSWORD|Cloudflare|Dashboard|Variables and Secrets|32[–-]256|Deploy|CIMD|DCR/i;
 const auth = {
 	responseType: "code",
 	clientId: "test",
@@ -42,6 +43,7 @@ async function formRequest(env, fields = {}, extraHeaders = {}) {
 	const url = OAUTH_ORIGIN + "/authorize" + query;
 	const page = await handleAuthorize(new Request(url), env);
 	const html = await page.text();
+	assert.doesNotMatch(html, adminCopy, "public consent must not contain admin instructions");
 	assert.equal(page.headers.get("referrer-policy"), "no-referrer");
 	assert.ok(!html.includes("<script>"));
 	assert.ok(html.includes("&lt;script&gt;"));
@@ -216,12 +218,36 @@ test("only the Runtime Secret controls login; local process.env is never a fallb
 				env,
 			);
 			assert.equal(response.status, 503);
-			assert.match(await response.text(), /Cloudflare.*AUTH_PASSWORD/);
+			const text = await response.text();
+			assert.equal(text, "授权服务暂时不可用，请稍后重试。");
+			assert.doesNotMatch(text, adminCopy);
 		}
 	} finally {
 		if (original === undefined) delete process.env.AUTH_PASSWORD;
 		else process.env.AUTH_PASSWORD = original;
 	}
+});
+test("public authorization errors do not expose setup instructions or provider exceptions", async () => {
+	for (const override of [
+		{ codeChallengeMethod: "plain" },
+		{ scope: ["send_mail"] },
+		{ redirectUri: "https://*.example/callback" },
+	]) {
+		const { env } = fixture(override);
+		const response = await handleAuthorize(new Request(OAUTH_ORIGIN + "/authorize" + query), env);
+		assert.equal(response.status, 400);
+		assert.doesNotMatch(await response.text(), adminCopy);
+	}
+	const { env, grants } = fixture();
+	env.OAUTH_PROVIDER.parseAuthRequest = async () => {
+		throw new Error("AUTH_PASSWORD=" + password);
+	};
+	const response = await handleAuthorize(new Request(OAUTH_ORIGIN + "/authorize" + query), env);
+	assert.equal(response.status, 400);
+	const text = await response.text();
+	assert.doesNotMatch(text, adminCopy);
+	assert.ok(!text.includes(password));
+	assert.equal(grants(), 0);
 });
 test("password attempts are rate limited and form size is bounded", async () => {
 	const { env, grants } = fixture();

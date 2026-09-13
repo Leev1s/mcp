@@ -69,16 +69,8 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 		return reply("Method not allowed", 405);
 	// Cloudflare Runtime Secret, read on each request. No local-file/env fallback.
 	if (!validAuthPassword(env.AUTH_PASSWORD))
-		return reply(
-			"请在 Cloudflare → mcp → Settings → Variables and Secrets 中设置 Secret 类型的 AUTH_PASSWORD（32–256 字符），然后点击 Deploy。",
-			503,
-		);
+		return reply("授权服务暂时不可用，请稍后重试。", 503);
 	if (url.href.length > 8192) return reply("Request too large", 414);
-	if (url.searchParams.get("client_id")?.startsWith("https://"))
-		return reply(
-			"此连接仍在使用旧 CIMD 配置。请在 ChatGPT 删除并重新添加 MCP 连接，使用 OAuth 动态客户端注册（DCR），再重新授权。",
-			400,
-		);
 	if (request.method === "POST") {
 		if (
 			!(
@@ -98,15 +90,17 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 			!auth.codeChallenge ||
 			auth.codeChallengeMethod !== "S256"
 		)
-			return reply("PKCE S256 is required.", 400);
-		if (auth.scope.some((scope) => scope !== MCP_SCOPE)) return reply("Unsupported scope", 400);
+			return reply("授权请求无效，请从客户端重新连接。", 400);
+		if (auth.scope.some((scope) => scope !== MCP_SCOPE))
+			return reply("授权请求无效，请从客户端重新连接。", 400);
 		const client = await env.OAUTH_PROVIDER.lookupClient(auth.clientId);
-		if (!client) return reply("Unknown client", 400);
+		if (!client) return reply("授权请求无效，请从客户端重新连接。", 400);
 		// parseAuthRequest has already checked the registered redirect URI.
 		// Chrome applies form-action to the 303 callback too, not only the POST.
 		const callback = new URL(auth.redirectUri);
 		const callbackSource = callback.origin === "null" ? callback.protocol : callback.origin;
-		if (/[\s;,*]/.test(callbackSource)) return reply("Invalid redirect URI", 400);
+		if (/[\s;,*]/.test(callbackSource))
+			return reply("授权请求无效，请从客户端重新连接。", 400);
 		const consentHeaders = {
 			...headers,
 			"Content-Security-Policy": headers["Content-Security-Policy"].replace(
@@ -123,8 +117,7 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 <p>客户端自报名称（未经验证）：<strong>${escape(client.clientName ?? "Unnamed client")}</strong></p>
 <p>授权后返回：<br><code>${escape(auth.redirectUri)}</code></p>
 <p>允许读取、搜索邮件和保存草稿，以及 UUID / 时间工具。<strong>不能发送邮件。</strong>仅在你主动连接且认可上方客户端与回调地址时授权。</p>
-<p>使用你在 Cloudflare 为此 Worker 设置的 <code>AUTH_PASSWORD</code> 授权口令。</p>
-<form method="post" action="${escape(url.pathname + url.search)}"><input type="hidden" name="csrf" value="${nonce}"><label for="password">你的 R3 授权口令（不是邮箱密码）</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required><button name="decision" value="approve">授权连接</button><button name="decision" value="deny" formnovalidate>拒绝</button></form></html>`,
+<form method="post" action="${escape(url.pathname + url.search)}"><input type="hidden" name="csrf" value="${nonce}"><label for="password">R3 授权口令</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required><button name="decision" value="approve">授权连接</button><button name="decision" value="deny" formnovalidate>拒绝</button></form></html>`,
 				{
 					headers: {
 						...consentHeaders,
