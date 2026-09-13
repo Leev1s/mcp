@@ -261,7 +261,7 @@ try {
 		"authorization codes cannot be reused",
 	);
 	// Simulate Dashboard-only secret replacement: same bundle, new Runtime binding.
-	const dashboardPassword = password + "dashboard";
+	const dashboardPassword = "s";
 	await mf.setOptions(
 		convertV4MiniflareOptions({ ...options, bindings: { AUTH_PASSWORD: dashboardPassword } }),
 	);

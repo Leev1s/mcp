@@ -3,7 +3,6 @@ import { test } from "node:test";
 import {
 	createConsent,
 	validConsent,
-	validAuthPassword,
 	handleAuthorize,
 	OAUTH_ORIGIN,
 	MCP_SCOPE,
@@ -44,6 +43,7 @@ async function formRequest(env, fields = {}, extraHeaders = {}) {
 	const page = await handleAuthorize(new Request(url), env);
 	const html = await page.text();
 	assert.doesNotMatch(html, adminCopy, "public consent must not contain admin instructions");
+	assert.doesNotMatch(html, /\b(?:min|max)length\s*=/i, "no password length policy in the form");
 	assert.equal(page.headers.get("referrer-policy"), "no-referrer");
 	assert.ok(!html.includes("<script>"));
 	assert.ok(html.includes("&lt;script&gt;"));
@@ -189,9 +189,16 @@ test("missing config, non-S256 PKCE and unsupported scope fail closed", async ()
 		503,
 	);
 });
+test("configured nonempty passwords have no minimum or maximum length policy", async () => {
+	for (const configured of ["x", "short-pass", "x".repeat(31), "x".repeat(257), "x".repeat(4096), " 密码 "]) {
+		const { env, grants } = fixture();
+		env.AUTH_PASSWORD = configured;
+		const response = await handleAuthorize(await formRequest(env, { password: configured }), env);
+		assert.equal(response.status, 303);
+		assert.equal(grants(), 1);
+	}
+});
 test("only the Runtime Secret controls login; local process.env is never a fallback", async () => {
-	assert.equal(validAuthPassword("x".repeat(32)), true);
-	assert.equal(validAuthPassword("x".repeat(256)), true);
 	const original = process.env.AUTH_PASSWORD;
 	process.env.AUTH_PASSWORD = "local-value-that-must-never-control-production";
 	try {
@@ -211,7 +218,7 @@ test("only the Runtime Secret controls login; local process.env is never a fallb
 			303,
 		);
 		assert.equal(grants(), 1);
-		for (const invalid of [undefined, "", "x".repeat(31), "x".repeat(257)]) {
+		for (const invalid of [undefined, ""]) {
 			env.AUTH_PASSWORD = invalid;
 			const response = await handleAuthorize(
 				new Request(OAUTH_ORIGIN + "/authorize" + query),

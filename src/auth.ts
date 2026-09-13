@@ -24,9 +24,6 @@ const escape = (value: string) =>
 		(c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
 	);
 export const fingerprint = (value: string) => createHash("sha256").update(value).digest("hex");
-export function validAuthPassword(value: unknown): value is string {
-	return typeof value === "string" && value.length >= 32 && value.length <= 256;
-}
 function equal(a: string, b: string) {
 	return timingSafeEqual(Buffer.from(fingerprint(a), "hex"), Buffer.from(fingerprint(b), "hex"));
 }
@@ -68,7 +65,7 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 	if (request.method !== "GET" && request.method !== "POST")
 		return reply("Method not allowed", 405);
 	// Cloudflare Runtime Secret, read on each request. No local-file/env fallback.
-	if (!validAuthPassword(env.AUTH_PASSWORD))
+	if (!env.AUTH_PASSWORD)
 		return reply("授权服务暂时不可用，请稍后重试。", 503);
 	if (url.href.length > 8192) return reply("Request too large", 414);
 	if (request.method === "POST") {
@@ -117,7 +114,7 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 <p>客户端自报名称（未经验证）：<strong>${escape(client.clientName ?? "Unnamed client")}</strong></p>
 <p>授权后返回：<br><code>${escape(auth.redirectUri)}</code></p>
 <p>允许读取、搜索邮件和保存草稿，以及 UUID / 时间工具。<strong>不能发送邮件。</strong>仅在你主动连接且认可上方客户端与回调地址时授权。</p>
-<form method="post" action="${escape(url.pathname + url.search)}"><input type="hidden" name="csrf" value="${nonce}"><label for="password">R3 授权口令</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required><button name="decision" value="approve">授权连接</button><button name="decision" value="deny" formnovalidate>拒绝</button></form></html>`,
+<form method="post" action="${escape(url.pathname + url.search)}"><input type="hidden" name="csrf" value="${nonce}"><label for="password">R3 授权口令</label><input id="password" name="password" type="password" autocomplete="current-password" required><button name="decision" value="approve">授权连接</button><button name="decision" value="deny" formnovalidate>拒绝</button></form></html>`,
 				{
 					headers: {
 						...consentHeaders,

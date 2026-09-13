@@ -40,7 +40,7 @@ MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数�
 | `IMAP_SERVER` / `IMAP_PORT`         | `wrangler.jsonc`          | 当前 `imap.qq.com:993`，仅 IMAPS TLS             |
 | `IMAP_ACCOUNT`                      | Worker Runtime Secret     | 完整邮箱地址                                     |
 | `IMAP_SECRET`                       | Worker Runtime Secret     | QQ IMAP 授权码，不是登录密码                     |
-| `AUTH_PASSWORD`                     | Worker Runtime Secret     | 在 Dashboard 自行设置的独立授权口令，32–256 字符 |
+| `AUTH_PASSWORD`                     | Worker Runtime Secret     | 在 Dashboard 自行设置的非空授权口令 |
 | `OAUTH_KV`                          | Worker KV binding         | 客户端、授权和令牌状态；由官方库管理             |
 | `AUTH_LIMITER`                      | Worker Rate Limit binding | 每 IP / 每类操作 10 次每分钟；非全球严格计数     |
 | `MAIL_FROM` / `IMAP_DRAFTS_MAILBOX` | 可选 Runtime 设置         | 默认邮箱账户 / 自动识别草稿目录                  |
@@ -55,13 +55,13 @@ MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数�
 
 1. 打开 Cloudflare **Workers & Pages → mcp → Settings → Variables and Secrets**。
 2. 编辑已有的 `AUTH_PASSWORD`；没有则添加同名配置。类型选择 **Secret**，不要选明文 Text。
-3. 输入你自己的新口令，建议使用密码管理器生成的 32–256 字符高强度口令，不复用邮箱密码或 IMAP 授权码。
+3. 输入你自己的新口令，建议使用独立的强口令，不复用邮箱密码或 IMAP 授权码。
 4. 点击 **Deploy**，将这个 Runtime Secret 的修改应用到 Worker。
 5. 回到 ChatGPT 重新发起授权，在新授权页输入刚设置的口令。
 
 无需修改代码、GitHub Secrets、本地文件或运行 Wrangler。这里是 **Worker Settings**，不是 **Build Settings**。[Cloudflare 官方配置步骤](https://developers.cloudflare.com/workers/configuration/secrets/#via-the-dashboard)。Cloudflare 不再展示保存后的 Secret 原值，但允许替换；请在自己的密码管理器中保存口令。
 
-`env.AUTH_PASSWORD` 中的 `env` 是 Cloudflare 注入的运行环境，不是本机 `.env` 文件。程序每次请求读取它；32–256 字符是本项目的单人口令安全策略，不是 MCP 协议要求。口令缺失或长度不合要求时拒绝登录。公开页面仅显示“授权服务暂时不可用”，不展示配置名称、后台操作说明或内部排错信息；管理说明仅保留在本文档中。
+`env.AUTH_PASSWORD` 中的 `env` 是 Cloudflare 注入的运行环境，不是本机 `.env` 文件。程序每次请求读取它，不设置口令长度或字符规则，只在口令未配置或为空时拒绝登录。通用请求大小限制及限速仍保留。公开页面仅显示“授权服务暂时不可用”，不展示配置名称、后台操作说明或内部排错信息；管理说明仅保留在本文档中。
 
 更换口令会使旧访问令牌及旧授权刷新出来的令牌无法使用 MCP，所有客户端都需重新授权。授权里保存的口令指纹只是云端口令版本标记，与本地文件无关。不要恢复旧口令；旧授权记录会随生命周期过期，也可向 `/token` 发送标准撤销请求。Cloudflare KV 最终一致，撤销传播不保证瞬时全球完成。
 
