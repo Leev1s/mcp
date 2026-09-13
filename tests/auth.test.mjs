@@ -3,6 +3,7 @@ import { test } from "node:test";
 import {
 	createConsent,
 	validConsent,
+	validAuthPassword,
 	handleAuthorize,
 	OAUTH_ORIGIN,
 	MCP_SCOPE,
@@ -185,6 +186,42 @@ test("missing config, non-S256 PKCE and unsupported scope fail closed", async ()
 		(await handleAuthorize(new Request(OAUTH_ORIGIN + "/authorize"), env)).status,
 		503,
 	);
+});
+test("only the Runtime Secret controls login; local process.env is never a fallback", async () => {
+	assert.equal(validAuthPassword("x".repeat(32)), true);
+	assert.equal(validAuthPassword("x".repeat(256)), true);
+	const original = process.env.AUTH_PASSWORD;
+	process.env.AUTH_PASSWORD = "local-value-that-must-never-control-production";
+	try {
+		const { env, grants } = fixture();
+		env.AUTH_PASSWORD = "dashboard-managed-passphrase-" + "x".repeat(32);
+		assert.equal(
+			(
+				await handleAuthorize(
+					await formRequest(env, { password: process.env.AUTH_PASSWORD }),
+					env,
+				)
+			).status,
+			403,
+		);
+		assert.equal(
+			(await handleAuthorize(await formRequest(env, { password: env.AUTH_PASSWORD }), env)).status,
+			303,
+		);
+		assert.equal(grants(), 1);
+		for (const invalid of [undefined, "", "x".repeat(31), "x".repeat(257)]) {
+			env.AUTH_PASSWORD = invalid;
+			const response = await handleAuthorize(
+				new Request(OAUTH_ORIGIN + "/authorize" + query),
+				env,
+			);
+			assert.equal(response.status, 503);
+			assert.match(await response.text(), /Cloudflare.*AUTH_PASSWORD/);
+		}
+	} finally {
+		if (original === undefined) delete process.env.AUTH_PASSWORD;
+		else process.env.AUTH_PASSWORD = original;
+	}
 });
 test("password attempts are rate limited and form size is bounded", async () => {
 	const { env, grants } = fixture();

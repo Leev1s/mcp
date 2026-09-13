@@ -3,6 +3,7 @@
 	"name": "mcp",
 	"main": "src/index.ts",
 	"vars": { "IMAP_SERVER": "imap.qq.com", "IMAP_PORT": "993" },
+	"secrets": { "required": ["AUTH_PASSWORD", "IMAP_ACCOUNT", "IMAP_SECRET"] },
 	"workers_dev": true,
 	"routes": [
 		{

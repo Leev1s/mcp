@@ -2,7 +2,14 @@ import { createMcpHandler, McpServer } from "@modelcontextprotocol/server";
 import { v5 as uuidv5 } from "uuid";
 import { z } from "zod";
 import OAuthProvider from "@cloudflare/workers-oauth-provider";
-import { handleAuthorize, fingerprint, MCP_SCOPE, OAUTH_ORIGIN, type AuthEnv } from "./auth";
+import {
+	handleAuthorize,
+	fingerprint,
+	validAuthPassword,
+	MCP_SCOPE,
+	OAUTH_ORIGIN,
+	type AuthEnv,
+} from "./auth";
 import { registerMailTools, type MailEnv } from "./mail";
 
 const BASE_STATUS_HEADERS = {
@@ -598,8 +605,7 @@ const oauth = new OAuthProvider<AppEnv>({
 				credentialVersion: string;
 			}>(request.headers.get("authorization")?.replace(/^Bearer\s+/i, "") ?? "");
 			if (
-				!env.AUTH_PASSWORD ||
-				env.AUTH_PASSWORD.length < 32 ||
+				!validAuthPassword(env.AUTH_PASSWORD) ||
 				token?.grant.props.userId !== "owner" ||
 				token.grant.props.credentialVersion !== fingerprint(env.AUTH_PASSWORD)
 			) {
@@ -615,7 +621,7 @@ const oauth = new OAuthProvider<AppEnv>({
 			}
 			if (!token.scope.includes(MCP_SCOPE))
 				return new Response("Insufficient scope", {
-					status: 401,
+					status: 403,
 					headers: {
 						"WWW-Authenticate": bearerChallenge(
 							"insufficient_scope",

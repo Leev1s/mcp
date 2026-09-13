@@ -34,6 +34,8 @@ try {
 	);
 	const metadata = await (await request("/.well-known/oauth-authorization-server")).json();
 	assert.equal(metadata.issuer, origin);
+	assert.equal(metadata.authorization_response_iss_parameter_supported, true);
+	assert.deepEqual(metadata.response_types_supported, ["code"]);
 	assert.notEqual(metadata.client_id_metadata_document_supported, true);
 	assert.equal(metadata.registration_endpoint, origin + "/register");
 	assert.ok(metadata.code_challenge_methods_supported.includes("S256"));
@@ -194,6 +196,29 @@ try {
 	assert.equal(refreshed.status, 200);
 	tokens = await refreshed.json();
 	assert.equal((await rpc("tools/list", {})).status, 200);
+	const limited = await request(
+		"/token",
+		form({
+			grant_type: "refresh_token",
+			client_id,
+			refresh_token: tokens.refresh_token,
+			scope: "ungranted:scope",
+		}),
+	);
+	assert.equal(limited.status, 200);
+	tokens = await limited.json();
+	const insufficientScope = await rpc("tools/list", {});
+	assert.equal(insufficientScope.status, 403);
+	assert.match(insufficientScope.headers.get("www-authenticate"), /error="insufficient_scope"/);
+	assert.match(insufficientScope.headers.get("www-authenticate"), /scope="mcp:access"/);
+	assert.match(insufficientScope.headers.get("www-authenticate"), /resource_metadata=/);
+	const restored = await request(
+		"/token",
+		form({ grant_type: "refresh_token", client_id, refresh_token: tokens.refresh_token }),
+	);
+	assert.equal(restored.status, 200);
+	tokens = await restored.json();
+	assert.equal((await rpc("tools/list", {})).status, 200);
 	await mf.setOptions(
 		convertV4MiniflareOptions({
 			...options,
@@ -235,8 +260,35 @@ try {
 		400,
 		"authorization codes cannot be reused",
 	);
+	// Simulate Dashboard-only secret replacement: same bundle, new Runtime binding.
+	const dashboardPassword = password + "dashboard";
+	await mf.setOptions(
+		convertV4MiniflareOptions({ ...options, bindings: { AUTH_PASSWORD: dashboardPassword } }),
+	);
+	const freshPage = await request("/authorize?" + params);
+	assert.equal(freshPage.status, 200);
+	const freshCsrf = (await freshPage.text()).match(/name="csrf" value="([^"]+)"/)[1];
+	const freshHeaders = {
+		Cookie: freshPage.headers.get("set-cookie").split(";")[0],
+		"Content-Type": "application/x-www-form-urlencoded",
+	};
+	const oldPassword = await request("/authorize?" + params, {
+		...form({ csrf: freshCsrf, password, decision: "approve" }),
+		headers: freshHeaders,
+	});
+	assert.equal(oldPassword.status, 403);
+	const newPassword = await request("/authorize?" + params, {
+		...form({ csrf: freshCsrf, password: dashboardPassword, decision: "approve" }),
+		headers: freshHeaders,
+	});
+	assert.equal(newPassword.status, 303);
+	const newCode = new URL(newPassword.headers.get("location")).searchParams.get("code");
+	const newTokens = await request("/token", form({ ...exchange, code: newCode }));
+	assert.equal(newTokens.status, 200);
+	tokens = await newTokens.json();
+	assert.equal((await rpc("tools/list", {})).status, 200);
 	console.log(
-		"OAuth integration passed: DCR with upstream 403, consent, PKCE, redirects, 5 output schemas, structured results, safe mail errors, password rotation, refresh and revocation.",
+		"OAuth integration passed: DCR with upstream 403, consent, PKCE, redirects, 5 output schemas, structured results, scope challenges, safe mail errors, Dashboard-only password changes, refresh and revocation.",
 	);
 } finally {
 	await mf.dispose();

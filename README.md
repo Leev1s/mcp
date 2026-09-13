@@ -6,7 +6,7 @@
 
 MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数据发现和动态注册（DCR）连接，无需手动分配固定 API Key。授权页输入单独的 **R3 授权口令**，不是 QQ 邮箱密码。仅批准你主动发起的连接，并核对页面上的客户端及回调地址；客户端名称是自报的，不是认证标识。
 
-当前关闭 CIMD：2026-09-11 在 workerd 实测读取 `https://chatgpt.com/oauth/client.json` 返回 HTTP 403，而普通 curl 可以读取。模拟元数据测试无法覆盖这个真实网络差异。DCR 是 OpenAI 官方支持的标准 OAuth 注册方式，不依赖读取该 URL，也不跳过回调地址或 PKCE 验证。若旧授权链接的 client_id 仍是这个 URL，请在 ChatGPT 删除后重新添加连接，选择 OAuth / DCR，不要反复打开旧链接。授权口令没有变化。
+当前保留 DCR 兼容接入。MCP 2026-07-28 已优先推荐 CIMD、弃用新实现的 DCR，但 OpenAI 仍支持 DCR。2026-09-13 再次在 workerd 实测读取 `https://chatgpt.com/oauth/client.json` 返回 HTTP 403，因此暂不宣告 CIMD 可用，也不硬编码或伪造该元数据。若授权链接的 client_id 仍是这个 URL，请在 ChatGPT 重新配置连接，选择 OAuth / DCR。这个网络兼容限制不影响口令的云端配置。
 
 旧 `/mcp/<秘密路径>` 已停用，旧连接需要删除后重新添加。`workers.dev` 保留公开状态页与 `/204`，OAuth 仅在上述自定义域名提供，避免多个 issuer。
 
@@ -19,6 +19,20 @@ MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数�
 
 使用授权码 + PKCE S256。访问令牌有效期 1 小时，刷新令牌 30 天；刷新与撤销由官方库处理。`mcp:access` 是一个简单的全工具权限，不做复杂权限体系。OAuth 访问令牌仍通过标准 Bearer 请求头传输，和以前的固定 API Key 是不同的机制。
 
+## OAuth 实现依据
+
+遵循 [MCP 授权规范](https://modelcontextprotocol.io/specification/2026-07-28/basic/authorization)、[Cloudflare 官方自托管方案](https://developers.cloudflare.com/agents/model-context-protocol/protocol/authorization/#4-your-mcp-server-handles-authorization-and-authentication-itself)和 [OpenAI 接入要求](https://developers.openai.com/plugins/build/auth)。协议层使用 `@cloudflare/workers-oauth-provider`，没有自写授权码、令牌格式或刷新协议。
+
+| 职责 | 实现 |
+| --- | --- |
+| 资源与授权服务器发现（RFC 9728 / 8414） | 官方 Provider；固定 issuer 和 `/mcp` resource |
+| 客户端、回调、PKCE、resource 校验 | 官方 `parseAuthRequest`，应用限制 S256 和 `mcp:access` |
+| 授权码、访问/刷新令牌、过期与撤销 | 官方 `completeAuthorization` 和 `/token`，状态存于 KV |
+| 受保护请求 | 官方 Provider 验证令牌与 audience；应用检查 owner、口令版本及 scope；未认证 401，权限不足 403 |
+| 用户登录和同意 | 本应用的单人口令页；Runtime Secret、CSRF Cookie、显式同意、限速和 CSP |
+
+上面最后一行是 Cloudflare 文档明确交给应用实现的认证步骤。口令只提交给本站 `/authorize`，不是把口令交给 ChatGPT，也不是 OAuth 的 password grant。OpenAI 更推荐成熟的身份服务；这里根据“单人自用、不接第三方登录”的要求选择自托管口令页，不宣称它具备完整身份平台的账户恢复或 MFA 能力。
+
 ## 配置与安全边界
 
 | 配置                                | 存放位置                  | 用途                                             |
@@ -26,28 +40,32 @@ MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数�
 | `IMAP_SERVER` / `IMAP_PORT`         | `wrangler.jsonc`          | 当前 `imap.qq.com:993`，仅 IMAPS TLS             |
 | `IMAP_ACCOUNT`                      | Worker Runtime Secret     | 完整邮箱地址                                     |
 | `IMAP_SECRET`                       | Worker Runtime Secret     | QQ IMAP 授权码，不是登录密码                     |
-| `AUTH_PASSWORD`                     | Worker Runtime Secret     | 独立随机授权口令，至少 32 字符，建议 32 随机字节 |
+| `AUTH_PASSWORD`                     | Worker Runtime Secret     | 在 Dashboard 自行设置的独立授权口令，32–256 字符 |
 | `OAUTH_KV`                          | Worker KV binding         | 客户端、授权和令牌状态；由官方库管理             |
 | `AUTH_LIMITER`                      | Worker Rate Limit binding | 每 IP / 每类操作 10 次每分钟；非全球严格计数     |
 | `MAIL_FROM` / `IMAP_DRAFTS_MAILBOX` | 可选 Runtime 设置         | 默认邮箱账户 / 自动识别草稿目录                  |
 
-生产 Secrets 只在 Cloudflare 的 Worker Runtime 配置中设置，不放 GitHub 或 Build variables。代码部署不会把本机 `.env` 上传为 Secrets。KV ID 不是凭据，可以放 Git；KV 内的数据不放 Git。Provider 保存令牌哈希并加密授权 props，不把 IMAP 密码发给客户端。
+生产 Secrets 在 Cloudflare 的 Worker Runtime 配置中设置，不放 GitHub 或 Build variables。`wrangler.jsonc` 的 `secrets.required` 只声明必需的名称，不包含值；类型生成不再依赖本地 `.env`。代码部署不会把本机 `.env` 上传为 Secrets，也不会覆盖 Dashboard 已有的 Secret 值。KV ID 不是凭据，可以放 Git；KV 内的数据不放 Git。Provider 保存令牌哈希并加密授权 props，不把 IMAP 密码发给客户端。
 
 授权页使用 Secure / HttpOnly / SameSite Cookie、绑定原始 OAuth 请求的 CSRF 校验、CSP 和限速。口令代表唯一的 owner，不是多人账户系统。拿到口令仍然可以授权自己的客户端，请保存在密码管理器里。
 
 授权页的 `form-action` 只允许本站与本次已验证的客户端回调 origin。Chrome 也会检查表单提交后的 303 跳转；如果只写 `'self'`，回调会被拦截，再次提交已清除 Cookie 的旧表单就会显示“授权页面已失效”。测试 OAuth 时要在浏览器实际点击并确认回到客户端，不能只检查服务端返回 303。
 
-更新线上口令可在 Dashboard 修改 `AUTH_PASSWORD`，或交互输入（不要把值放命令行）：
+## 在 Cloudflare 修改授权口令
 
-```bash
-npx wrangler secret put AUTH_PASSWORD
-```
+1. 打开 Cloudflare **Workers & Pages → mcp → Settings → Variables and Secrets**。
+2. 编辑已有的 `AUTH_PASSWORD`；没有则添加同名配置。类型选择 **Secret**，不要选明文 Text。
+3. 输入你自己的新口令，建议使用密码管理器生成的 32–256 字符高强度口令，不复用邮箱密码或 IMAP 授权码。
+4. 点击 **Deploy**，将这个 Runtime Secret 的修改应用到 Worker。
+5. 回到 ChatGPT 重新发起授权，在新授权页输入刚设置的口令。
 
-使用新的随机口令，不复用旧口令。代码会在每次 MCP 请求检查授权时的口令指纹，因此更换后旧访问令牌和旧授权刷新出来的令牌均不能再使用 MCP，所有客户端需要重新授权。旧授权记录会随生命周期过期；客户端可向 `/token` 发送标准撤销请求主动撤销。Cloudflare KV 是最终一致存储，撤销传播不保证瞬时全球完成。
+无需修改代码、GitHub Secrets、本地文件或运行 Wrangler。这里是 **Worker Settings**，不是 **Build Settings**。[Cloudflare 官方配置步骤](https://developers.cloudflare.com/workers/configuration/secrets/#via-the-dashboard)。Cloudflare 不再展示保存后的 Secret 原值，但允许替换；请在自己的密码管理器中保存口令。
 
-也可运行 `npm run auth:rotate`：生成 32 随机字节口令，通过标准输入上传为 Cloudflare Secret，并保存权限为 600 的本机备份。它会立即更换线上口令，只有需要轮换时才运行；需要本机 Wrangler 登录，普通 CI/CD 不运行此命令。
+`env.AUTH_PASSWORD` 中的 `env` 是 Cloudflare 注入的运行环境，不是本机 `.env` 文件。程序每次请求读取它；32–256 字符是本项目的单人口令安全策略，不是 MCP 协议要求。口令缺失或长度不合要求时拒绝登录，并提示到 Dashboard 配置。
 
-本机的 `.env` 和 `.private/` 是 **可选的本地备份**（权限 600、Git 忽略），不是唯一线上配置来源。新口令备份文件为 `.private/oauth-password`，请迁移到自己的密码管理器；Git clone 不会带走这些文件。旧 `MCP_URL_TOKEN` / `MCP_API_KEY` 已废弃。
+更换口令会使旧访问令牌及旧授权刷新出来的令牌无法使用 MCP，所有客户端都需重新授权。授权里保存的口令指纹只是云端口令版本标记，与本地文件无关。不要恢复旧口令；旧授权记录会随生命周期过期，也可向 `/token` 发送标准撤销请求。Cloudflare KV 最终一致，撤销传播不保证瞬时全球完成。
+
+已移除生成口令并上传、落盘的 `auth:rotate` 脚本。历史 `.env` / `.private/` 仍受 Git 忽略，不参与线上鉴权，也不会自动同步到 Cloudflare；本轮未删除你的旧备份。旧 `MCP_URL_TOKEN` / `MCP_API_KEY` 已废弃。
 
 ## 项目结构
 

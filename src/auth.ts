@@ -24,6 +24,9 @@ const escape = (value: string) =>
 		(c) => ({ "&": "&amp;", "<": "&lt;", ">": "&gt;", '"': "&quot;", "'": "&#39;" })[c]!,
 	);
 export const fingerprint = (value: string) => createHash("sha256").update(value).digest("hex");
+export function validAuthPassword(value: unknown): value is string {
+	return typeof value === "string" && value.length >= 32 && value.length <= 256;
+}
 function equal(a: string, b: string) {
 	return timingSafeEqual(Buffer.from(fingerprint(a), "hex"), Buffer.from(fingerprint(b), "hex"));
 }
@@ -64,9 +67,12 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 	if (url.pathname !== "/authorize") return reply("Not Found", 404);
 	if (request.method !== "GET" && request.method !== "POST")
 		return reply("Method not allowed", 405);
-	// Generated high-entropy owner passphrase, never the email password.
-	if (!env.AUTH_PASSWORD || env.AUTH_PASSWORD.length < 32)
-		return reply("Authorization is not configured.", 503);
+	// Cloudflare Runtime Secret, read on each request. No local-file/env fallback.
+	if (!validAuthPassword(env.AUTH_PASSWORD))
+		return reply(
+			"请在 Cloudflare → mcp → Settings → Variables and Secrets 中设置 Secret 类型的 AUTH_PASSWORD（32–256 字符），然后点击 Deploy。",
+			503,
+		);
 	if (url.href.length > 8192) return reply("Request too large", 414);
 	if (url.searchParams.get("client_id")?.startsWith("https://"))
 		return reply(
@@ -84,6 +90,8 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 			return reply("尝试次数过多，请稍后重试。", 429);
 	}
 	try {
+		// Cloudflare's documented parse → authenticate/consent → complete flow:
+		// https://github.com/cloudflare/workers-oauth-provider#authorization-endpoint
 		const auth = await env.OAUTH_PROVIDER.parseAuthRequest(request);
 		if (
 			auth.responseType !== "code" ||
@@ -115,6 +123,7 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 <p>客户端自报名称（未经验证）：<strong>${escape(client.clientName ?? "Unnamed client")}</strong></p>
 <p>授权后返回：<br><code>${escape(auth.redirectUri)}</code></p>
 <p>允许读取、搜索邮件和保存草稿，以及 UUID / 时间工具。<strong>不能发送邮件。</strong>仅在你主动连接且认可上方客户端与回调地址时授权。</p>
+<p>使用你在 Cloudflare 为此 Worker 设置的 <code>AUTH_PASSWORD</code> 授权口令。</p>
 <form method="post" action="${escape(url.pathname + url.search)}"><input type="hidden" name="csrf" value="${nonce}"><label for="password">你的 R3 授权口令（不是邮箱密码）</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required><button name="decision" value="approve">授权连接</button><button name="decision" value="deny" formnovalidate>拒绝</button></form></html>`,
 				{
 					headers: {

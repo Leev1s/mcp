@@ -7,11 +7,10 @@
 		"check": "npm test && npm run type-check && oxlint && npm run test:oauth",
 		"test": "node --experimental-test-module-mocks --test tests/*.test.mjs",
 		"test:oauth": "wrangler deploy --dry-run --outdir .wrangler/oauth-build && node tests/oauth.integration.mjs",
-		"auth:rotate": "node scripts/set-auth-password.mjs",
 		"deploy": "wrangler deploy",
 		"dev": "wrangler dev",
 		"lint:fix": "oxlint --fix",
-		"cf-typegen": "wrangler types --env-file .env.example",
+		"cf-typegen": "wrangler types",
 		"type-check": "tsc --noEmit"
 	},
 	"dependencies": {
