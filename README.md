@@ -35,6 +35,8 @@ MCP 地址：`https://r3.net.eu.org/mcp`，选择 OAuth。客户端通过元数�
 
 授权页使用 Secure / HttpOnly / SameSite Cookie、绑定原始 OAuth 请求的 CSRF 校验、CSP 和限速。口令代表唯一的 owner，不是多人账户系统。拿到口令仍然可以授权自己的客户端，请保存在密码管理器里。
 
+授权页的 `form-action` 只允许本站与本次已验证的客户端回调 origin。Chrome 也会检查表单提交后的 303 跳转；如果只写 `'self'`，回调会被拦截，再次提交已清除 Cookie 的旧表单就会显示“授权页面已失效”。测试 OAuth 时要在浏览器实际点击并确认回到客户端，不能只检查服务端返回 303。
+
 更新线上口令可在 Dashboard 修改 `AUTH_PASSWORD`，或交互输入（不要把值放命令行）：
 
 ```bash

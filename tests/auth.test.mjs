@@ -80,6 +80,39 @@ test("owner password and explicit consent create a grant; cookie is cleared", as
 	assert.ok(response.headers.get("set-cookie").includes("Max-Age=0"));
 	assert.equal(response.headers.get("referrer-policy"), "no-referrer");
 });
+test("form CSP allows only self and the validated callback origin, including after POST", async () => {
+	for (const redirectUri of [
+		"https://chatgpt.com/connector_platform_oauth_redirect?ui_locales=zh-CN",
+		"http://127.0.0.1:3000/callback",
+		"r3-test-client://callback",
+	]) {
+		const { env } = fixture({ redirectUri });
+		const callback = new URL(redirectUri);
+		const source = callback.origin === "null" ? callback.protocol : callback.origin;
+		const page = await handleAuthorize(new Request(OAUTH_ORIGIN + "/authorize" + query), env);
+		const policy = page.headers.get("content-security-policy");
+		assert.equal(
+			policy.split("; ").find((directive) => directive.startsWith("form-action ")),
+			`form-action 'self' ${source}`,
+		);
+		assert.ok(policy.includes("default-src 'none'"));
+		assert.ok(policy.includes("frame-ancestors 'none'"));
+		assert.ok(!policy.includes("callback"));
+		for (const decision of ["approve", "deny"]) {
+			const response = await handleAuthorize(await formRequest(env, { decision }), env);
+			assert.equal(response.status, 303);
+			assert.equal(response.headers.get("content-security-policy"), policy);
+		}
+	}
+});
+test("callback origins cannot inject CSP directives or wildcards", async () => {
+	for (const redirectUri of ["https://*.example/callback", "https://bad;host.example/callback"]) {
+		const { env, grants } = fixture({ redirectUri });
+		const page = await handleAuthorize(new Request(OAUTH_ORIGIN + "/authorize" + query), env);
+		assert.equal(page.status, 400);
+		assert.equal(grants(), 0);
+	}
+});
 test("wrong password, missing CSRF and invalid decision never create grants", async () => {
 	for (const [fields, headers] of [
 		[{ password: "wrong" }, {}],

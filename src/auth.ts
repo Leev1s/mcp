@@ -94,6 +94,18 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 		if (auth.scope.some((scope) => scope !== MCP_SCOPE)) return reply("Unsupported scope", 400);
 		const client = await env.OAUTH_PROVIDER.lookupClient(auth.clientId);
 		if (!client) return reply("Unknown client", 400);
+		// parseAuthRequest has already checked the registered redirect URI.
+		// Chrome applies form-action to the 303 callback too, not only the POST.
+		const callback = new URL(auth.redirectUri);
+		const callbackSource = callback.origin === "null" ? callback.protocol : callback.origin;
+		if (/[\s;,*]/.test(callbackSource)) return reply("Invalid redirect URI", 400);
+		const consentHeaders = {
+			...headers,
+			"Content-Security-Policy": headers["Content-Security-Policy"].replace(
+				"form-action 'self'",
+				`form-action 'self' ${callbackSource}`,
+			),
+		};
 		if (request.method === "GET") {
 			const { nonce, cookie } = createConsent(url.search, env.AUTH_PASSWORD);
 			return new Response(
@@ -106,7 +118,7 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 <form method="post" action="${escape(url.pathname + url.search)}"><input type="hidden" name="csrf" value="${nonce}"><label for="password">你的 R3 授权口令（不是邮箱密码）</label><input id="password" name="password" type="password" autocomplete="current-password" maxlength="256" required><button name="decision" value="approve">授权连接</button><button name="decision" value="deny" formnovalidate>拒绝</button></form></html>`,
 				{
 					headers: {
-						...headers,
+						...consentHeaders,
 						"Set-Cookie": `${COOKIE}=${cookie}; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=600`,
 					},
 				},
@@ -165,7 +177,7 @@ export async function handleAuthorize(request: Request, env: AuthEnv): Promise<R
 		return new Response(null, {
 			status: 303,
 			headers: {
-				...headers,
+				...consentHeaders,
 				Location: redirectTo,
 				"Set-Cookie": `${COOKIE}=; HttpOnly; Secure; SameSite=Lax; Path=/; Max-Age=0`,
 			},

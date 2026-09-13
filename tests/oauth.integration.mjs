@@ -73,6 +73,11 @@ try {
 	const page = await request("/authorize?" + params);
 	assert.equal(page.status, 200);
 	assert.equal(page.headers.get("referrer-policy"), "no-referrer");
+	assert.match(
+		page.headers.get("content-security-policy"),
+		/form-action 'self' https:\/\/client\.example;/,
+		"the browser must be allowed to follow the cross-origin OAuth callback",
+	);
 	const cookie = page.headers.get("set-cookie").split(";")[0];
 	const csrf = (await page.text()).match(/name="csrf" value="([^"]+)"/)[1];
 	const cimd = new URLSearchParams(params);
