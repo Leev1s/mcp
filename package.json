@@ -19,7 +19,7 @@
 		"imapflow": "^2.0.0",
 		"postal-mime": "^3.0.0",
 		"uuid": "^14.0.2",
-		"zod": "^4.4.3"
+		"zod": "^4.6.7"
 	},
 	"devDependencies": {
 		"@types/node": "^26.2.0",
